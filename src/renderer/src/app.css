@@ -1,0 +1,209 @@
+/* Lithos design system (Lithos-Graphics/lithos-design-reference.md): navy stack,
+   sky -> indigo -> purple brand gradient, 48px grid, sharp corners everywhere
+   except status dots. */
+:root {
+  color-scheme: dark;
+
+  --bg-deep: #060913;
+  --bg: #0a0f1e;
+  --panel: #0f1629;
+  --raised: #141d33;
+
+  --sky-dark: #0ea5e9;
+  --sky: #38bdf8;
+  --sky-light: #7dd3fc;
+  --indigo: #818cf8;
+  --purple: #a855f7;
+  --purple-light: #c084fc;
+
+  --text-head: #f1f5f9;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --dim: #64748b;
+
+  --green: #10b981;
+  --amber: #f59e0b;
+  --red: #ef4444;
+
+  --border: rgba(56, 189, 248, 0.1);
+  --border-strong: rgba(56, 189, 248, 0.2);
+  --brand: linear-gradient(135deg, #38bdf8 0%, #818cf8 48%, #a855f7 100%);
+
+  --sans: 'Inter Variable', 'Inter', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(rgba(56, 189, 248, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Ambient glows, sky top-right and purple bottom-left. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(700px circle at 100% -5%, rgba(56, 189, 248, 0.11), transparent 60%),
+    radial-gradient(700px circle at 0% 105%, rgba(168, 85, 247, 0.09), transparent 60%);
+}
+
+button {
+  font: inherit;
+}
+
+.micro {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+.panel {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+/* 2px brand bar across the top of every panel. */
+.panel::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  right: -1px;
+  height: 2px;
+  background: var(--brand);
+  opacity: 0.8;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 12px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.2s,
+    filter 0.15s;
+}
+
+.btn:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.07);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.btn.primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--sky-dark), var(--sky));
+  color: #04111f;
+  box-shadow: 0 0 24px rgba(56, 189, 248, 0.22);
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--sky-dark), var(--sky));
+  box-shadow: 0 0 32px rgba(56, 189, 248, 0.4);
+  filter: brightness(1.06);
+}
+
+.btn.danger {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn:focus-visible,
+[role='tab']:focus-visible,
+[role='radio']:focus-visible {
+  outline: 2px solid var(--sky-light);
+  outline-offset: 2px;
+}
+
+.error-text {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 2px solid var(--red);
+  background: rgba(239, 68, 68, 0.08);
+  color: #fca5a5;
+  font-size: 12px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.15);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.3);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Lithos frosted glass core cube</title>
+  <desc id="desc">A clear outer cube surrounding a luminous cyan and violet inner cube.</desc>
+  <defs>
+    <linearGradient id="outerTop" x1="40" y1="52" x2="214" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E0F2FE" stop-opacity="0.24"/>
+      <stop offset="0.5" stop-color="#38BDF8" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#C084FC" stop-opacity="0.2"/>
+    </linearGradient>
+    <linearGradient id="outerLeft" x1="34" y1="80" x2="126" y2="230" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#0A0F1E" stop-opacity="0.3"/>
+    </linearGradient>
+    <linearGradient id="outerRight" x1="129" y1="129" x2="222" y2="182" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#818CF8" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#A855F7" stop-opacity="0.32"/>
+    </linearGradient>
+    <linearGradient id="coreTop" x1="88" y1="99" x2="168" y2="130" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A5F3FC"/>
+      <stop offset="0.52" stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#818CF8"/>
+    </linearGradient>
+    <linearGradient id="coreLeft" x1="85" y1="107" x2="129" y2="178" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0EA5E9"/>
+      <stop offset="1" stop-color="#123450"/>
+    </linearGradient>
+    <linearGradient id="coreRight" x1="128" y1="132" x2="171" y2="155" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#818CF8"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="33" y1="24" x2="224" y2="231" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E0F2FE"/>
+      <stop offset="0.42" stop-color="#7DD3FC"/>
+      <stop offset="1" stop-color="#C084FC"/>
+    </linearGradient>
+    <radialGradient id="aura" cx="0" cy="0" r="1" gradientTransform="translate(128 132) rotate(90) scale(78)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8" stop-opacity="0.36"/>
+      <stop offset="0.55" stop-color="#818CF8" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#A855F7" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur" x="45" y="49" width="166" height="166" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+  </defs>
+  <circle cx="128" cy="132" r="70" fill="url(#aura)" filter="url(#blur)"/>
+  <path d="M128 25 222 78 128 131 34 78 128 25Z" fill="url(#outerTop)"/>
+  <path d="M34 78 128 131V231L34 179V78Z" fill="url(#outerLeft)"/>
+  <path d="M128 131 222 78V179L128 231V131Z" fill="url(#outerRight)"/>
+  <g>
+    <path d="M128 82 172 107 128 132 84 107 128 82Z" fill="url(#coreTop)"/>
+    <path d="M84 107 128 132V178L84 153V107Z" fill="url(#coreLeft)"/>
+    <path d="M128 132 172 107V153L128 178V132Z" fill="url(#coreRight)"/>
+    <path d="M128 82 172 107V153L128 178 84 153V107L128 82Z" stroke="#E0F2FE" stroke-opacity="0.84" stroke-width="1.4"/>
+    <path d="M84 107 128 132 172 107M128 132V178" stroke="#E0F2FE" stroke-opacity="0.56"/>
+  </g>
+  <path d="M128 25 222 78V179L128 231 34 179V78L128 25Z" stroke="url(#edge)" stroke-width="2" stroke-linejoin="miter"/>
+  <path d="M34 78 128 131 222 78M128 131V231" stroke="#E0F2FE" stroke-opacity="0.58" stroke-width="1.25"/>
+  <path d="M51 77 128 34 205 77" stroke="#E0F2FE" stroke-opacity="0.35"/>
+  <path d="M43 88V169L119 211M213 88V169L137 211" stroke="#E0F2FE" stroke-opacity="0.15"/>
+</svg>
