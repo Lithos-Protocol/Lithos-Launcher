@@ -13,16 +13,21 @@ export interface NodeKey {
 interface VaultData {
   v: 1
   nodeKeys: Partial<Record<Network, NodeKey>>
+  walletPasswords: Partial<Record<Network, string>>
 }
+
+const empty = (): VaultData => ({ v: 1, nodeKeys: {}, walletPasswords: {} })
 
 /**
  * Secrets encrypted with the OS (DPAPI on Windows, libsecret/KWallet on Linux).
  * When only Electron's plaintext fallback is available, nothing is written to
- * disk: secrets live in memory for this session and are regenerated next time.
+ * disk: secrets live in memory for this session only.
  */
 export class Vault {
   readonly info: VaultInfo
-  private data: VaultData = { v: 1, nodeKeys: {} }
+  private data: VaultData = empty()
+  /** Wallet passwords the user chose not to save, kept until the launcher exits. */
+  private readonly sessionPasswords: Partial<Record<Network, string>> = {}
   private readonly file = join(app.getPath('userData'), 'vault.bin')
 
   constructor() {
@@ -42,11 +47,13 @@ export class Vault {
       throw err
     }
     try {
-      const parsed = JSON.parse(safeStorage.decryptString(blob)) as VaultData
-      if (parsed.v === 1) this.data = parsed
+      const parsed = JSON.parse(safeStorage.decryptString(blob)) as Partial<VaultData>
+      if (parsed.v === 1) {
+        this.data = { v: 1, nodeKeys: parsed.nodeKeys ?? {}, walletPasswords: parsed.walletPasswords ?? {} }
+      }
     } catch {
-      // Unreadable (e.g. OS profile changed). Start fresh; node keys are re-issued on next start.
-      this.data = { v: 1, nodeKeys: {} }
+      // Unreadable (e.g. OS profile changed). Start fresh: node keys are re-issued, wallet passwords re-asked.
+      this.data = empty()
     }
   }
 
@@ -56,6 +63,22 @@ export class Vault {
 
   async setNodeKey(network: Network, key: NodeKey): Promise<void> {
     this.data.nodeKeys[network] = key
+    await this.persist()
+  }
+
+  getWalletPassword(network: Network): string | null {
+    return this.sessionPasswords[network] ?? this.data.walletPasswords[network] ?? null
+  }
+
+  /** Always kept for this session; written to disk only if `save` and the OS can encrypt it. */
+  async setWalletPassword(network: Network, password: string, save: boolean): Promise<void> {
+    if (save && this.info.secure) {
+      delete this.sessionPasswords[network]
+      this.data.walletPasswords[network] = password
+    } else {
+      this.sessionPasswords[network] = password
+      delete this.data.walletPasswords[network]
+    }
     await this.persist()
   }
 

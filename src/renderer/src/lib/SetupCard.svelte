@@ -30,6 +30,8 @@
   ])
 
   const allInstalled = $derived(steps.every((s) => s.installed))
+  // Once everything is in place the card shrinks to one line to make room for the node and wallet.
+  const compact = $derived(allInstalled && !ui.installing && !ui.setupError)
 
   const PHASE_TEXT: Record<TaskProgress['phase'], string> = {
     resolving: 'Finding latest release',
@@ -52,45 +54,51 @@
     <button class="link micro" onclick={openFolder} title={ui.net?.folder}>Open folder ↗</button>
   </div>
 
-  <ol class="steps">
-    {#each steps as step (step.id)}
-      {@const p = ui.progress[step.id]}
-      {@const active = p && p.phase !== 'done' && p.phase !== 'error'}
-      <li class="step" class:done={step.installed} class:active class:failed={p?.phase === 'error'}>
-        <span class="marker" aria-hidden="true">{step.installed ? '✓' : ''}</span>
-        <div class="body">
-          <div class="row">
-            <span class="label">{step.label}</span>
-            <span class="version mono">{step.installed ? (step.version ?? '') : active ? '' : 'Not installed'}</span>
-          </div>
-          {#if p && active}
-            <ProgressBar value={progressValue(p)} label="{step.label} progress" />
-            <div class="row sub mono">
-              <span>{PHASE_TEXT[p.phase]}</span>
-              {#if p.phase === 'downloading'}
-                <span>{fmtMB(p.received)} / {fmtMB(p.total)} MB</span>
-              {/if}
+  {#if compact}
+    <div class="ready" role="status">
+      <span class="tick" aria-hidden="true">✓</span>
+      <div>
+        <div class="ready-title">Everything installed</div>
+        <div class="sub mono">Java {ui.net?.java.version} · Ergo node {ui.net?.node.version}</div>
+      </div>
+    </div>
+  {:else}
+    <ol class="steps">
+      {#each steps as step (step.id)}
+        {@const p = ui.progress[step.id]}
+        {@const active = p && p.phase !== 'done' && p.phase !== 'error'}
+        <li class="step" class:done={step.installed} class:active class:failed={p?.phase === 'error'}>
+          <span class="marker" aria-hidden="true">{step.installed ? '✓' : ''}</span>
+          <div class="body">
+            <div class="row">
+              <span class="label">{step.label}</span>
+              <span class="version mono">{step.installed ? (step.version ?? '') : active ? '' : 'Not installed'}</span>
             </div>
-          {:else}
-            <div class="sub">{step.source}</div>
-          {/if}
-        </div>
-      </li>
-    {/each}
-  </ol>
+            {#if p && active}
+              <ProgressBar value={progressValue(p)} label="{step.label} progress" />
+              <div class="row sub mono">
+                <span>{PHASE_TEXT[p.phase]}</span>
+                {#if p.phase === 'downloading'}
+                  <span>{fmtMB(p.received)} / {fmtMB(p.total)} MB</span>
+                {/if}
+              </div>
+            {:else}
+              <div class="sub">{step.source}</div>
+            {/if}
+          </div>
+        </li>
+      {/each}
+    </ol>
 
-  <div class="foot">
-    {#if ui.setupError}
-      <p class="error-text" role="alert">{ui.setupError}</p>
-    {/if}
-    {#if allInstalled && !ui.installing}
-      <div class="ready micro" role="status"><span aria-hidden="true">✓</span> Everything installed</div>
-    {:else}
-      <button class="btn primary wide" onclick={install} disabled={!ui.net || ui.installing}>
+    <div class="foot">
+      {#if ui.setupError}
+        <p class="error-text" role="alert">{ui.setupError}</p>
+      {/if}
+      <button class="btn primary wide" onclick={install} disabled={!ui.net || allInstalled || ui.installing}>
         {ui.installing ? 'Installing…' : 'Install'}
       </button>
-    {/if}
-  </div>
+    </div>
+  {/if}
 </section>
 
 <style>
@@ -104,6 +112,29 @@
 
   .link:hover {
     color: var(--sky-light);
+  }
+
+  .ready {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 20px 16px;
+  }
+
+  .tick {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    background: var(--green);
+    color: #04111f;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .ready-title {
+    color: var(--text-head);
+    font-weight: 600;
   }
 
   .steps {
@@ -195,16 +226,5 @@
 
   .wide {
     width: 100%;
-  }
-
-  .ready {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 12px 16px;
-    border: 1px solid rgba(16, 185, 129, 0.35);
-    background: rgba(16, 185, 129, 0.08);
-    color: #6ee7b7;
   }
 </style>

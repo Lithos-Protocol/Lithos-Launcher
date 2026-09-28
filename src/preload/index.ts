@@ -19,10 +19,17 @@ const api: LauncherApi = {
   getNodeInfo: () => ipcRenderer.invoke(IPC.getNodeInfo),
   openNodePanel: () => ipcRenderer.invoke(IPC.openNodePanel),
   openFolder: (network) => ipcRenderer.invoke(IPC.openFolder, network),
+  getWallet: () => ipcRenderer.invoke(IPC.getWallet),
+  createWallet: (password) => ipcRenderer.invoke(IPC.createWallet, password),
+  restoreWallet: (mnemonic, password) => ipcRenderer.invoke(IPC.restoreWallet, mnemonic, password),
+  unlockWallet: (password, remember) => ipcRenderer.invoke(IPC.unlockWallet, password, remember),
+  copyText: (text) => ipcRenderer.invoke(IPC.copyText, text),
+  setSensitive: (on) => ipcRenderer.invoke(IPC.setSensitive, on),
   onProgress: (cb) => subscribe(IPC.progress, cb),
   onProcState: (cb) => subscribe(IPC.procState, cb),
   onLogs: (cb) => subscribe(IPC.logs, cb),
-  onNodeInfo: (cb) => subscribe(IPC.nodeInfo, cb)
+  onNodeInfo: (cb) => subscribe(IPC.nodeInfo, cb),
+  onWallet: (cb) => subscribe(IPC.wallet, cb)
 }
 
 contextBridge.exposeInMainWorld('lithos', api)

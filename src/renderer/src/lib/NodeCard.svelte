@@ -1,8 +1,7 @@
 <script lang="ts">
   import type { ProcStatus } from '@shared/types'
-  import { fmtInt, fmtPct } from './format'
-  import ProgressBar from './ProgressBar.svelte'
   import StatusDot from './StatusDot.svelte'
+  import SyncPanel from './SyncPanel.svelte'
   import { openNodePanel, startNode, stopNode, ui } from './store.svelte'
 
   const STATUS_TEXT: Record<ProcStatus, string> = {
@@ -19,16 +18,6 @@
   const shownNetwork = $derived(active && ui.node.network ? ui.node.network : ui.network)
   const otherNetwork = $derived(active && ui.node.network !== null && ui.node.network !== ui.network)
   const installed = $derived(ui.net?.java.installed && ui.net?.node.installed)
-
-  const target = $derived(Math.max(ui.info?.headersHeight ?? 0, ui.info?.maxPeerHeight ?? 0))
-  const blocksFraction = $derived(target > 0 ? (ui.info?.fullHeight ?? 0) / target : 0)
-
-  const metrics = $derived([
-    { label: 'Headers', value: fmtInt(ui.info?.headersHeight) },
-    { label: 'Blocks', value: fmtInt(ui.info?.fullHeight) },
-    { label: 'Indexed', value: fmtInt(ui.info?.indexedHeight) },
-    { label: 'Peers', value: fmtInt(ui.info?.peersCount) }
-  ])
 </script>
 
 <section class="panel" aria-labelledby="node-title">
@@ -49,24 +38,15 @@
         <div class="detail">Install the components above first.</div>
       {/if}
     </div>
-  </div>
-
-  <dl class="metrics">
-    {#each metrics as m (m.label)}
-      <div class="metric">
-        <dt class="micro">{m.label}</dt>
-        <dd class="mono">{m.value}</dd>
+    {#if ui.info}
+      <div class="peers mono" title="Connected peers">
+        <span class="micro">Peers</span>
+        {ui.info.peersCount}
       </div>
-    {/each}
-  </dl>
-
-  <div class="sync">
-    <div class="sync-row">
-      <span class="micro">Block sync</span>
-      <span class="mono pct">{ui.info ? fmtPct(blocksFraction) : '—'}</span>
-    </div>
-    <ProgressBar value={ui.info ? blocksFraction : 0} label="Block sync" />
+    {/if}
   </div>
+
+  <SyncPanel />
 
   <div class="actions">
     {#if active}
@@ -111,6 +91,11 @@
     margin-top: 7px;
   }
 
+  .status-body {
+    flex: 1;
+    min-width: 0;
+  }
+
   .status-text {
     color: var(--text-head);
     font-size: 18px;
@@ -123,55 +108,23 @@
     font-size: 12px;
   }
 
-  .metrics {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    margin: 0;
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .metric {
-    padding: 12px 20px;
-  }
-
-  .metric + .metric {
-    border-left: 1px solid var(--border);
-  }
-
-  dt {
-    font-size: 9.5px;
-  }
-
-  dd {
-    margin: 4px 0 0;
-    color: var(--text-head);
-    font-size: 13px;
-    font-weight: 500;
-  }
-
-  .sync {
+  .peers {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 16px 20px 4px;
+    align-items: flex-end;
+    color: var(--text-head);
+    font-size: 15px;
   }
 
-  .sync-row {
-    display: flex;
-    justify-content: space-between;
-  }
-
-  .pct {
-    color: var(--sky-light);
-    font-size: 11.5px;
+  .peers .micro {
+    font-size: 9.5px;
   }
 
   .actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
-    padding: 16px 20px 20px;
+    padding: 14px 20px 20px;
   }
 
   .node-error {

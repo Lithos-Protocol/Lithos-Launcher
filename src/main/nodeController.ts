@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import type { Network, NodeInfo } from '@shared/types'
 import { detectErgo } from './ergo'
 import { HELLO_HASH, HELLO_KEY, writeNodeConf } from './ergoConf'
@@ -16,7 +17,14 @@ const POLL_MS = 5000
 /** Thrown inside a start flow that a later start/stop superseded. */
 class Cancelled extends Error {}
 
-export class NodeController {
+export interface NodeConnection {
+  api: NodeApi
+  apiKey: string
+  network: Network
+}
+
+/** Runs the Ergo node. Emits 'ready' (network) once it is running and its API key is confirmed. */
+export class NodeController extends EventEmitter {
   readonly proc = new ManagedProcess('node')
   private network: Network | null = null
   /** The API key the running node accepts. */
@@ -32,11 +40,18 @@ export class NodeController {
     private readonly vault: Vault,
     private readonly emitInfo: (info: NodeInfo | null) => void
   ) {
+    super()
     this.proc.on('exit', (code: number | null) => this.onExit(code))
   }
 
   get runningNetwork(): Network | null {
     return this.proc.alive ? this.network : null
+  }
+
+  /** API access to the running node, or null unless it is fully up. */
+  connection(): NodeConnection | null {
+    if (this.proc.state.status !== 'running' || !this.network || !this.apiKey) return null
+    return { api: new NodeApi(NODE_API_PORT[this.network]), apiKey: this.apiKey, network: this.network }
   }
 
   get info(): NodeInfo | null {
@@ -71,6 +86,7 @@ export class NodeController {
       this.proc.setState({ status: 'running', detail: null })
       this.proc.log('Node is running')
       this.startPolling(port)
+      this.emit('ready', network)
     } catch (err) {
       if (err instanceof Cancelled || gen !== this.generation) {
         // stop() ran mid-start. If it found nothing to stop yet, clean up here.

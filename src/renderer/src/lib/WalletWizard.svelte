@@ -1,0 +1,431 @@
+<script lang="ts">
+  import { onDestroy } from 'svelte'
+  import { MIN_PASSWORD_LENGTH, MNEMONIC_LENGTHS } from '@shared/types'
+  import { errorText, ui } from './store.svelte'
+
+  type Step = 'password' | 'seed' | 'confirm' | 'restore' | 'done'
+
+  const mode = ui.wizard ?? 'create'
+  let step = $state<Step>(mode === 'restore' ? 'restore' : 'password')
+  let password = $state('')
+  let confirmPassword = $state('')
+  let showPassword = $state(false)
+  let mnemonic = $state('')
+  let words = $state<string[]>([])
+  let wroteDown = $state(false)
+  let checks = $state<{ index: number; value: string }[]>([])
+  let busy = $state(false)
+  let error = $state<string | null>(null)
+
+  const secure = $derived(ui.vault?.secure ?? false)
+  const passwordProblem = $derived(
+    password.length < MIN_PASSWORD_LENGTH
+      ? `Use at least ${MIN_PASSWORD_LENGTH} characters`
+      : confirmPassword !== password
+        ? 'The passwords do not match'
+        : null
+  )
+  const restoreWords = $derived(mnemonic.trim() ? mnemonic.trim().split(/\s+/).length : 0)
+  const restoreCountOk = $derived((MNEMONIC_LENGTHS as readonly number[]).includes(restoreWords))
+
+  // While the seed is on screen and unconfirmed: hide the window from screen capture and block closing.
+  const sensitive = $derived(step === 'seed' || step === 'confirm')
+  $effect(() => {
+    void window.lithos.setSensitive(sensitive)
+    if (!sensitive) return
+    const guard = (event: BeforeUnloadEvent): void => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', guard)
+    return () => window.removeEventListener('beforeunload', guard)
+  })
+  onDestroy(() => void window.lithos.setSensitive(false))
+
+  const passwordNote = $derived(
+    secure
+      ? 'The launcher saves this password, encrypted by your operating system, to unlock the wallet when the node starts.'
+      : 'No system keyring was found, so the launcher keeps this password only until it closes.'
+  )
+
+  /** Moves focus into each step for keyboard and screen reader users. */
+  function focusFirst(node: HTMLElement): void {
+    requestAnimationFrame(() => node.querySelector<HTMLElement>('input, textarea, button')?.focus())
+  }
+
+  function close(): void {
+    words = []
+    checks = []
+    ui.wizard = null
+  }
+
+  function onKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && !sensitive && !busy) close()
+  }
+
+  async function create(event: SubmitEvent): Promise<void> {
+    event.preventDefault()
+    if (passwordProblem) return
+    busy = true
+    error = null
+    try {
+      words = await window.lithos.createWallet(password)
+      password = ''
+      confirmPassword = ''
+      step = 'seed'
+    } catch (err) {
+      error = errorText(err)
+    } finally {
+      busy = false
+    }
+  }
+
+  function pickChecks(): void {
+    const picked = new Set<number>()
+    const buf = new Uint32Array(1)
+    while (picked.size < Math.min(3, words.length)) {
+      crypto.getRandomValues(buf)
+      picked.add(buf[0] % words.length)
+    }
+    checks = [...picked].sort((a, b) => a - b).map((index) => ({ index, value: '' }))
+    error = null
+    step = 'confirm'
+  }
+
+  function verify(event: SubmitEvent): void {
+    event.preventDefault()
+    const wrong = checks.find((c) => c.value.trim().toLowerCase() !== words[c.index])
+    if (wrong) {
+      error = `Word #${wrong.index + 1} doesn't match. Check your paper copy.`
+      return
+    }
+    words = []
+    checks = []
+    error = null
+    step = 'done'
+  }
+
+  async function restore(event: SubmitEvent): Promise<void> {
+    event.preventDefault()
+    if (passwordProblem || !restoreCountOk) return
+    busy = true
+    error = null
+    try {
+      await window.lithos.restoreWallet(mnemonic, password)
+      mnemonic = ''
+      password = ''
+      confirmPassword = ''
+      step = 'done'
+    } catch (err) {
+      error = errorText(err)
+    } finally {
+      busy = false
+    }
+  }
+</script>
+
+<svelte:window onkeydown={onKeydown} />
+
+<div class="overlay">
+  <div class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
+    {#if step === 'password'}
+      <form class="content" onsubmit={create} use:focusFirst>
+        <div class="top">
+          <span class="micro">Create wallet · Step 1 of 3</span>
+          <button type="button" class="x" aria-label="Close" onclick={close} disabled={busy}>✕</button>
+        </div>
+        <h2 id="wizard-title">Choose a wallet password</h2>
+        <p class="note">This password encrypts the wallet file on this computer. {passwordNote}</p>
+        <div class="field">
+          <label class="micro" for="new-password">Password</label>
+          <input
+            id="new-password"
+            class="input"
+            type={showPassword ? 'text' : 'password'}
+            autocomplete="new-password"
+            bind:value={password}
+          />
+        </div>
+        <div class="field">
+          <label class="micro" for="confirm-password">Repeat password</label>
+          <input
+            id="confirm-password"
+            class="input"
+            type={showPassword ? 'text' : 'password'}
+            autocomplete="new-password"
+            bind:value={confirmPassword}
+          />
+        </div>
+        <label class="check"><input type="checkbox" bind:checked={showPassword} /> Show password</label>
+        {#if confirmPassword && passwordProblem}
+          <p class="hint">{passwordProblem}</p>
+        {/if}
+        {#if error}<p class="error-text" role="alert">{error}</p>{/if}
+        <button class="btn primary" type="submit" disabled={busy || passwordProblem !== null}>
+          {busy ? 'Creating wallet…' : 'Create wallet'}
+        </button>
+      </form>
+    {:else if step === 'seed'}
+      <div class="content" use:focusFirst>
+        <div class="top"><span class="micro">Create wallet · Step 2 of 3</span></div>
+        <h2 id="wizard-title">Write down your seed phrase</h2>
+        <ul class="warnings">
+          <li>Write these {words.length} words on paper, in order.</li>
+          <li>Anyone who has them can take the funds in this wallet. Never type them into a website.</li>
+          <li>The launcher does not save them and cannot show them again.</li>
+        </ul>
+        <ol class="words" aria-label="Seed phrase">
+          {#each words as word, i (i)}
+            <li><span class="n mono">{i + 1}</span><span class="w mono">{word}</span></li>
+          {/each}
+        </ol>
+        <label class="check"><input type="checkbox" bind:checked={wroteDown} /> I wrote down all {words.length} words</label>
+        <button class="btn primary" onclick={pickChecks} disabled={!wroteDown}>Continue</button>
+      </div>
+    {:else if step === 'confirm'}
+      <form class="content" onsubmit={verify} use:focusFirst>
+        <div class="top"><span class="micro">Create wallet · Step 3 of 3</span></div>
+        <h2 id="wizard-title">Check your paper copy</h2>
+        <p class="note">Type these words from what you wrote down.</p>
+        <div class="checks">
+          {#each checks as check (check.index)}
+            <div class="field">
+              <label class="micro" for="check-{check.index}">Word #{check.index + 1}</label>
+              <input
+                id="check-{check.index}"
+                class="input mono"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+                bind:value={check.value}
+              />
+            </div>
+          {/each}
+        </div>
+        {#if error}<p class="error-text" role="alert">{error}</p>{/if}
+        <div class="row">
+          <button
+            type="button"
+            class="btn"
+            onclick={() => {
+              error = null
+              wroteDown = false
+              step = 'seed'
+            }}>Show words again</button
+          >
+          <button class="btn primary" type="submit" disabled={checks.some((c) => !c.value.trim())}>Confirm</button>
+        </div>
+      </form>
+    {:else if step === 'restore'}
+      <form class="content" onsubmit={restore} use:focusFirst>
+        <div class="top">
+          <span class="micro">Restore wallet</span>
+          <button type="button" class="x" aria-label="Close" onclick={close} disabled={busy}>✕</button>
+        </div>
+        <h2 id="wizard-title">Restore from a seed phrase</h2>
+        <p class="note">
+          Only restore a seed made for mining. The Lithos Client uses this wallet's keys, so don't use your main
+          savings wallet.
+        </p>
+        <div class="field">
+          <label class="micro" for="mnemonic">Seed phrase ({restoreWords} words)</label>
+          <textarea
+            id="mnemonic"
+            class="input mono"
+            rows="4"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            bind:value={mnemonic}
+          ></textarea>
+        </div>
+        <div class="field">
+          <label class="micro" for="restore-password">New wallet password</label>
+          <input
+            id="restore-password"
+            class="input"
+            type={showPassword ? 'text' : 'password'}
+            autocomplete="new-password"
+            bind:value={password}
+          />
+        </div>
+        <div class="field">
+          <label class="micro" for="restore-confirm">Repeat password</label>
+          <input
+            id="restore-confirm"
+            class="input"
+            type={showPassword ? 'text' : 'password'}
+            autocomplete="new-password"
+            bind:value={confirmPassword}
+          />
+        </div>
+        <label class="check"><input type="checkbox" bind:checked={showPassword} /> Show password</label>
+        {#if mnemonic.trim() && !restoreCountOk}
+          <p class="hint">A seed phrase has {MNEMONIC_LENGTHS.join(', ')} words.</p>
+        {:else if confirmPassword && passwordProblem}
+          <p class="hint">{passwordProblem}</p>
+        {/if}
+        {#if error}<p class="error-text" role="alert">{error}</p>{/if}
+        <button class="btn primary" type="submit" disabled={busy || passwordProblem !== null || !restoreCountOk}>
+          {busy ? 'Restoring…' : 'Restore wallet'}
+        </button>
+      </form>
+    {:else}
+      <div class="content done" use:focusFirst>
+        <div class="big-tick" aria-hidden="true">✓</div>
+        <h2 id="wizard-title">Wallet ready</h2>
+        <p class="note">
+          {mode === 'restore'
+            ? 'Your wallet is restored and unlocked. Balances appear as the node syncs.'
+            : 'Your wallet is created and unlocked. Keep your paper copy somewhere safe and offline.'}
+        </p>
+        <button class="btn primary" onclick={close}>Finish</button>
+      </div>
+    {/if}
+  </div>
+</div>
+
+<style>
+  .overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(6, 9, 19, 0.82);
+    backdrop-filter: blur(6px);
+  }
+
+  .dialog {
+    width: min(580px, 100%);
+    max-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  }
+
+  .content {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px 28px 28px;
+  }
+
+  .top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 24px;
+  }
+
+  .x {
+    border: none;
+    background: none;
+    color: var(--dim);
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .x:hover:not(:disabled) {
+    color: var(--text-head);
+  }
+
+  h2 {
+    margin: 0;
+    color: var(--text-head);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .hint {
+    margin: 0;
+    color: #fcd34d;
+    font-size: 12px;
+  }
+
+  .warnings {
+    margin: 0;
+    padding: 12px 16px 12px 32px;
+    border-left: 2px solid var(--amber);
+    background: rgba(245, 158, 11, 0.07);
+    color: var(--text);
+    font-size: 12.5px;
+  }
+
+  .warnings li + li {
+    margin-top: 4px;
+  }
+
+  .words {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .words li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 9px 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-deep);
+    user-select: text;
+  }
+
+  .n {
+    min-width: 18px;
+    color: var(--dim);
+    font-size: 10.5px;
+    text-align: right;
+  }
+
+  .w {
+    color: var(--text-head);
+    font-size: 13.5px;
+    font-weight: 500;
+  }
+
+  .checks {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  textarea.input {
+    resize: vertical;
+    line-height: 1.6;
+  }
+
+  .done {
+    align-items: center;
+    padding-top: 36px;
+    text-align: center;
+  }
+
+  .big-tick {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    background: var(--green);
+    box-shadow: 0 0 40px rgba(16, 185, 129, 0.5);
+    color: #04111f;
+    font-size: 28px;
+    font-weight: 700;
+  }
+
+  .done .btn {
+    min-width: 200px;
+  }
+</style>

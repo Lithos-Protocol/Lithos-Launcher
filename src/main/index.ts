@@ -1,11 +1,12 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, Menu, nativeTheme, session } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, session } from 'electron'
 import { IPC } from '@shared/types'
 import { Installer } from './installer'
 import { registerIpc } from './ipc'
 import { installRoot } from './layout'
 import { NodeController } from './nodeController'
 import { Vault } from './vault'
+import { WalletManager } from './wallet'
 
 app.enableSandbox()
 
@@ -41,6 +42,20 @@ function createWindow(): BrowserWindow {
     }
   })
   win.once('ready-to-show', () => win.show())
+
+  // The renderer blocks unloading while an unconfirmed seed phrase is on screen.
+  win.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'warning',
+      buttons: ['Stay', 'Close anyway'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Seed phrase not confirmed',
+      message: 'You have not confirmed your seed phrase yet.',
+      detail: 'If you close now, the launcher cannot show these words again. Without them, funds in this wallet cannot be recovered.'
+    })
+    if (choice === 1) event.preventDefault() // proceed with closing
+  })
 
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (!app.isPackaged && devUrl) void win.loadURL(devUrl)
@@ -84,8 +99,10 @@ function main(): void {
     const node = new NodeController(root, vault, (info) => send(IPC.nodeInfo, info))
     node.proc.on('state', (s) => send(IPC.procState, s))
     node.proc.on('logs', (chunk) => send(IPC.logs, chunk))
+    const wallet = new WalletManager(node, vault)
+    wallet.on('state', (s) => send(IPC.wallet, s))
 
-    registerIpc({ window: () => win, root, vault, installer, node })
+    registerIpc({ window: () => win, root, vault, installer, node, wallet })
 
     win = createWindow()
     win.on('closed', () => (win = null))

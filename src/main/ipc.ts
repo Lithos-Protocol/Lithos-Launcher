@@ -1,10 +1,11 @@
 import { mkdir } from 'node:fs/promises'
-import { ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import { clipboard, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { IPC, isNetwork, type LogChunk, type Network, type ProcId, type ProcState } from '@shared/types'
 import type { Installer } from './installer'
 import { layout, NODE_API_PORT } from './layout'
 import type { NodeController } from './nodeController'
 import type { Vault } from './vault'
+import type { WalletManager } from './wallet'
 
 interface IpcContext {
   window: () => BrowserWindow | null
@@ -12,6 +13,7 @@ interface IpcContext {
   vault: Vault
   installer: Installer
   node: NodeController
+  wallet: WalletManager
 }
 
 // Placeholder until the Lithos Client is wired up.
@@ -25,6 +27,16 @@ function asNetwork(value: unknown): Network {
 
 function asProcId(value: unknown): ProcId {
   if (value !== 'node' && value !== 'client') throw new Error('Invalid process id')
+  return value
+}
+
+function asString(value: unknown, maxLength: number): string {
+  if (typeof value !== 'string' || value.length > maxLength) throw new Error('Invalid argument')
+  return value
+}
+
+function asBoolean(value: unknown): boolean {
+  if (typeof value !== 'boolean') throw new Error('Invalid argument')
   return value
 }
 
@@ -61,4 +73,15 @@ export function registerIpc(ctx: IpcContext): void {
     const error = await shell.openPath(dir)
     if (error) throw new Error(error)
   })
+
+  handle(IPC.getWallet, () => ctx.wallet.state)
+  handle(IPC.createWallet, (password) => ctx.wallet.create(asString(password, 256)))
+  handle(IPC.restoreWallet, (mnemonic, password) =>
+    ctx.wallet.restore(asString(mnemonic, 1000), asString(password, 256))
+  )
+  handle(IPC.unlockWallet, (password, remember) => ctx.wallet.unlock(asString(password, 256), asBoolean(remember)))
+
+  // The renderer has no clipboard permission; copying goes through here.
+  handle(IPC.copyText, (text) => clipboard.writeText(asString(text, 2000)))
+  handle(IPC.setSensitive, (on) => ctx.window()?.setContentProtection(asBoolean(on)))
 }

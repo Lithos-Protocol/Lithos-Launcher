@@ -5,6 +5,8 @@
   import NetworkSwitch from './lib/NetworkSwitch.svelte'
   import NodeCard from './lib/NodeCard.svelte'
   import SetupCard from './lib/SetupCard.svelte'
+  import WalletCard from './lib/WalletCard.svelte'
+  import WalletWizard from './lib/WalletWizard.svelte'
   import { init, ui } from './lib/store.svelte'
 
   let loadError = $state<string | null>(null)
@@ -54,10 +56,15 @@
     <div class="side">
       <SetupCard />
       <NodeCard />
+      <WalletCard />
     </div>
     <LogPanel />
   </main>
 </div>
+
+{#if ui.wizard}
+  <WalletWizard />
+{/if}
 
 <style>
   .app {

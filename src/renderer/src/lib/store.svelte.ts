@@ -1,7 +1,19 @@
-import type { Network, NetworkState, NodeInfo, ProcState, TaskId, TaskProgress, VaultInfo } from '@shared/types'
+import { syncView } from '@shared/sync'
+import type {
+  Network,
+  NetworkState,
+  NodeInfo,
+  ProcState,
+  TaskId,
+  TaskProgress,
+  VaultInfo,
+  WalletState
+} from '@shared/types'
+import { RateTracker } from './format'
 
 const NETWORK_KEY = 'lithos.network'
 const api = window.lithos
+const syncRate = new RateTracker()
 
 function savedNetwork(): Network {
   try {
@@ -18,6 +30,11 @@ export const ui = $state({
   net: null as NetworkState | null,
   node: { id: 'node', network: null, status: 'stopped', pid: null, exitCode: null, detail: null } as ProcState,
   info: null as NodeInfo | null,
+  /** Seconds until the current sync stage finishes, when it can be estimated. */
+  syncEta: null as number | null,
+  wallet: { network: null, phase: 'unavailable', address: null, passwordKnown: false, error: null } as WalletState,
+  /** Open wallet wizard, if any. */
+  wizard: null as 'create' | 'restore' | null,
   progress: {} as Partial<Record<TaskId, TaskProgress>>,
   vault: null as VaultInfo | null,
   installing: false,
@@ -31,17 +48,36 @@ export function errorText(err: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
 }
 
+function applyNodeInfo(info: NodeInfo | null): void {
+  ui.info = info
+  if (!info) {
+    syncRate.reset()
+    ui.syncEta = null
+    return
+  }
+  const v = syncView(info)
+  const current = v.stage === 'headers' ? v.headers : v.stage === 'blocks' ? v.blocks : v.stage === 'indexing' ? v.indexed : null
+  ui.syncEta = current === null ? null : syncRate.eta(v.stage, current, v.target)
+}
+
 export async function init(): Promise<void> {
   api.onProcState((s) => {
     if (s.id === 'node') ui.node = s
   })
-  api.onNodeInfo((info) => (ui.info = info))
+  api.onNodeInfo(applyNodeInfo)
+  api.onWallet((w) => (ui.wallet = w))
   api.onProgress((p) => (ui.progress[p.task] = p))
 
-  const [vault, node, info] = await Promise.all([api.getVaultInfo(), api.getProc('node'), api.getNodeInfo()])
+  const [vault, node, info, wallet] = await Promise.all([
+    api.getVaultInfo(),
+    api.getProc('node'),
+    api.getNodeInfo(),
+    api.getWallet()
+  ])
   ui.vault = vault
   ui.node = node
-  ui.info = info
+  ui.wallet = wallet
+  applyNodeInfo(info)
   await refresh()
 }
 
@@ -111,4 +147,18 @@ export async function openFolder(): Promise<void> {
   } catch (err) {
     ui.setupError = errorText(err)
   }
+}
+
+/** Returns an error message, or null on success. */
+export async function unlockWallet(password: string, remember: boolean): Promise<string | null> {
+  try {
+    await api.unlockWallet(password, remember)
+    return null
+  } catch (err) {
+    return errorText(err)
+  }
+}
+
+export function copyText(text: string): Promise<void> {
+  return api.copyText(text)
 }

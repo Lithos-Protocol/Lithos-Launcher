@@ -43,6 +43,23 @@ export interface NodeInfo {
   indexedHeight: number | null
 }
 
+export type WalletPhase = 'unavailable' | 'uninitialized' | 'locked' | 'unlocking' | 'unlocked'
+
+export interface WalletState {
+  /** Network of the running node, or null when no node is running. */
+  network: Network | null
+  phase: WalletPhase
+  /** The wallet's change address; only known while unlocked. */
+  address: string | null
+  /** The launcher holds this wallet's password (saved, or for this session only). */
+  passwordKnown: boolean
+  error: string | null
+}
+
+/** Seed phrase word counts the node accepts. */
+export const MNEMONIC_LENGTHS = [12, 15, 18, 21, 24] as const
+export const MIN_PASSWORD_LENGTH = 8
+
 export type TaskId = 'java' | 'node'
 export type TaskPhase = 'resolving' | 'downloading' | 'extracting' | 'done' | 'error'
 
@@ -78,10 +95,20 @@ export interface LauncherApi {
   getNodeInfo(): Promise<NodeInfo | null>
   openNodePanel(): Promise<void>
   openFolder(network: Network): Promise<void>
+  getWallet(): Promise<WalletState>
+  /** Creates the node wallet and returns its seed words. They are shown once and never stored. */
+  createWallet(password: string): Promise<string[]>
+  restoreWallet(mnemonic: string, password: string): Promise<void>
+  /** `remember` saves the password to the vault; it is always kept for the session. */
+  unlockWallet(password: string, remember: boolean): Promise<void>
+  copyText(text: string): Promise<void>
+  /** Hides the window from screenshots/screen recording while secrets are on screen. */
+  setSensitive(on: boolean): Promise<void>
   onProgress(cb: (p: TaskProgress) => void): () => void
   onProcState(cb: (s: ProcState) => void): () => void
   onLogs(cb: (chunk: LogChunk) => void): () => void
   onNodeInfo(cb: (info: NodeInfo | null) => void): () => void
+  onWallet(cb: (w: WalletState) => void): () => void
 }
 
 export const IPC = {
@@ -95,9 +122,16 @@ export const IPC = {
   getNodeInfo: 'node:get-info',
   openNodePanel: 'node:open-panel',
   openFolder: 'launcher:open-folder',
+  getWallet: 'wallet:get',
+  createWallet: 'wallet:create',
+  restoreWallet: 'wallet:restore',
+  unlockWallet: 'wallet:unlock',
+  copyText: 'launcher:copy-text',
+  setSensitive: 'launcher:set-sensitive',
   // main -> renderer
   progress: 'evt:progress',
   procState: 'evt:proc-state',
   logs: 'evt:logs',
-  nodeInfo: 'evt:node-info'
+  nodeInfo: 'evt:node-info',
+  wallet: 'evt:wallet'
 } as const
