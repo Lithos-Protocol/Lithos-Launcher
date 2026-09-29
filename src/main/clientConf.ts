@@ -28,8 +28,8 @@ const KEYS = {
 /**
  * Test mining (forceConfigDiff) sends no transactions: no rollup transactions, registration or
  * commitment (disableTransforms), no emission or self-collateral transactions, no DEX broadcasts,
- * and nothing extra in a block it finds (the genesis transaction still works). Self-collateral and
- * broadcasts are off by default; test mining pins them off.
+ * and nothing extra in a block it finds (the genesis transaction still works). Self-collateral,
+ * broadcasts and storage rent are off by default today; test mining pins them off regardless.
  */
 export const TEST_MODE_LINES: Record<string, string> = {
   'state.disableTransforms': 'true',
@@ -37,7 +37,8 @@ export const TEST_MODE_LINES: Record<string, string> = {
   'emission.autoCollateralize': 'false',
   'batching.ergodex.broadcast': 'false',
   'batching.lithosdex.broadcast': 'false',
-  'stratum.candidate.blockTransactions': 'false'
+  'stratum.candidate.blockTransactions': 'false',
+  'stratum.candidate.sources.rent.enabled': 'false'
 }
 
 /** What the launcher relies on or sets from its own UI; custom settings that change these are flagged. */

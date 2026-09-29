@@ -23,8 +23,8 @@ what to do next.
 - **Helps you mine:** picks a starting difficulty from your hashrate using the same formulas as the client's Difficulty
   page, explains the on-chain commitment before you opt in, and shows connected rigs, hashrate and super shares.
   **Test mining**, next to Start client, mines at your chosen difficulty with `forceConfigDiff` and sends no
-  transactions while you try difficulties out: it also sets `disableTransforms` and turns off emissions, DEX broadcasts
-  and extra block transactions. Restarts and "Start when ready" keep whichever mode the client last ran in.
+  transactions while you try difficulties out: it also sets `disableTransforms` and turns off emissions, DEX broadcasts,
+  storage rent and extra block transactions. Restarts and "Start when ready" keep whichever mode the client last ran in.
 - **Streams the node's and client's console output** in tabs.
 - **Keeps the node and client current:** the Setup card flags a newer release, and Versions switches either one to
   any release on GitHub (restarting it if it runs). For the node it offers both of Ergo's builds, LevelDB (6.0.x) and
