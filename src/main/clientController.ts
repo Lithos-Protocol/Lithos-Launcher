@@ -2,12 +2,13 @@ import { randomBytes } from 'node:crypto'
 import { hostname } from 'node:os'
 import { syncView } from '@shared/sync'
 import type { ClientStats, Network } from '@shared/types'
-import { CLIENT_ENV, readClientSettings, writeClientConf } from './clientConf'
+import { CLIENT_ENV, MANAGED_CLIENT_KEYS, readClientSettings, writeClientConf } from './clientConf'
 import { diagnose } from './diagnose'
 import { interrupt } from './interrupt'
 import { detectJre } from './java'
 import { heapPlan, javaEnv, layout } from './layout'
 import { detectClient, findKeystore } from './lithosClient'
+import { customOverrides } from './managedBlock'
 import type { NodeController } from './nodeController'
 import { ManagedProcess } from './process'
 import { lanAddresses } from './system'
@@ -114,6 +115,13 @@ export class ClientController {
         settings,
         lanHosts: [...lan, hostname()]
       })
+      const overrides = await customOverrides(layout.clientConf(this.root, network), MANAGED_CLIENT_KEYS).catch(() => [])
+      if (overrides.length) {
+        this.proc.log(
+          `Warning: lithos.conf overrides settings the launcher manages (${overrides.join(', ')}). ` +
+            'The client may not work as expected, and Settings may not show what it actually uses.'
+        )
+      }
       this.check(gen)
 
       const { clientMb } = heapPlan()
@@ -171,6 +179,16 @@ export class ClientController {
       this.proc.setState({ status: crashed ? 'crashed' : 'stopped', pid: null, ports: null, detail: message })
       throw err
     }
+  }
+
+  /** Replaces the Lithos API key (hashed by the node). A running client restarts to use it. */
+  async rotateKey(network: Network): Promise<void> {
+    const conn = this.node.connection()
+    if (!conn || conn.network !== network) throw new Error(`Start the ${network} node first`)
+    const key = randomBytes(32).toString('base64url')
+    await this.vault.setLithosKey(network, { key, hash: await conn.api.blake2b(key) })
+    this.proc.log('Replaced the Lithos API key')
+    if (this.runningNetwork === network) await this.restart(network)
   }
 
   /** Stops and starts again so changed settings take effect. */

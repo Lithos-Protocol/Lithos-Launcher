@@ -27,7 +27,7 @@ if (-not [LithosConsoleCtrl]::GenerateConsoleCtrlEvent(0, 0)) { exit 3 }
 exit 0
 `
 
-function powershellPath(): string {
+export function powershellPath(): string {
   // Absolute path so a stray powershell.exe earlier on PATH is never picked up.
   return join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
 }

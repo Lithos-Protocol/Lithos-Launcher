@@ -5,7 +5,10 @@
     DEFAULT_REDUCTION_MULTIPLIER,
     NETWORKS,
     REDUCTION_MULTIPLIERS,
-    type LauncherInfo
+    type ApiKeyName,
+    type ConfigName,
+    type LauncherInfo,
+    type NetworkConfigInfo
   } from '@shared/types'
   import Modal from './Modal.svelte'
   import { errorText, refresh, restartClient, saveClientSettings, ui } from './store.svelte'
@@ -21,9 +24,29 @@
   let multiplier = $state<number>(DEFAULT_REDUCTION_MULTIPLIER)
   let testMode = $state(false)
   let lanPanel = $state(false)
+  let config = $state<NetworkConfigInfo | null>(null)
+  let confirmRotate = $state<ApiKeyName | null>(null)
+  let rotating = $state<ApiKeyName | null>(null)
   let message = $state<string | null>(null)
   let error = $state<string | null>(null)
   let busy = $state(false)
+
+  const KEYS: { name: ApiKeyName; label: string; use: string }[] = [
+    {
+      name: 'node',
+      label: 'Node API key',
+      use: 'Unlocks wallet and admin actions in the node panel. The node only accepts it from this computer.'
+    },
+    {
+      name: 'lithos',
+      label: 'Lithos API key',
+      use: "Lets the Lithos panel claim rewards and place DEX orders. Enter it in the panel's settings."
+    }
+  ]
+  const FILES: { name: ConfigName; file: string; owner: string }[] = [
+    { name: 'node', file: 'ergo.conf', owner: 'node' },
+    { name: 'client', file: 'lithos.conf', owner: 'client' }
+  ]
 
   const running = $derived(ui.node.status !== 'stopped' && ui.node.status !== 'crashed')
   const nodeRunningHere = $derived(running && ui.node.network === network)
@@ -41,13 +64,23 @@
     lanPanel = s.lanPanel
   }
 
-  onMount(async () => {
-    const [launcher, node] = await Promise.all([api.getLauncherInfo(), api.getNodeSettings(network)])
-    info = launcher
-    nodeMb = info.heapOverridden.node ? String(info.heap.nodeMb) : ''
-    clientMb = info.heapOverridden.client ? String(info.heap.clientMb) : ''
-    offlineGeneration = node.offlineGeneration
-    loadClientFields()
+  const loadConfig = async (): Promise<void> => {
+    config = await api.getConfigInfo(network)
+  }
+
+  onMount(() => {
+    void (async () => {
+      const [launcher, node] = await Promise.all([api.getLauncherInfo(), api.getNodeSettings(network), loadConfig()])
+      info = launcher
+      nodeMb = info.heapOverridden.node ? String(info.heap.nodeMb) : ''
+      clientMb = info.heapOverridden.client ? String(info.heap.clientMb) : ''
+      offlineGeneration = node.offlineGeneration
+      loadClientFields()
+    })()
+    // Coming back from an editor: pick up what changed in the config files.
+    const onFocus = (): void => void loadConfig()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   })
 
   async function run(action: () => Promise<string | void>): Promise<void> {
@@ -104,6 +137,34 @@
       }
       return 'Saved. The client uses these settings the next time it starts.'
     })
+
+  const copyKey = (name: ApiKeyName): Promise<void> =>
+    run(async () => {
+      await api.copyApiKey(network, name)
+      return `Copied the ${name === 'node' ? 'node' : 'Lithos'} API key. The clipboard clears itself in 30 seconds.`
+    })
+
+  const rotateKey = (name: ApiKeyName): Promise<void> =>
+    run(async () => {
+      confirmRotate = null
+      rotating = name
+      try {
+        await api.rotateApiKey(network, name)
+      } finally {
+        rotating = null
+      }
+      await loadConfig()
+      if (name === 'lithos') {
+        return clientRunning
+          ? 'New Lithos API key in use; the client restarted with it. Update it wherever you entered the old one.'
+          : 'New Lithos API key saved. The client uses it the next time it starts.'
+      }
+      return ui.autoStartClient
+        ? 'The node restarted with its new API key. The Lithos Client starts again once the node is ready.'
+        : 'The node restarted with its new API key. Start the Lithos Client again when you are ready.'
+    })
+
+  const openConfig = (name: ConfigName, reveal: boolean): Promise<void> => run(() => api.openConfig(network, name, reveal))
 
   const clearImport = (target: (typeof NETWORKS)[number]): Promise<void> =>
     run(async () => {
@@ -254,6 +315,90 @@
           </button>
         </div>
       </section>
+
+      <section>
+        <h3>API keys · {network}</h3>
+        <p class="note">
+          Paste a key where a panel asks for one. The launcher copies it without showing it, keeps it out of Windows
+          clipboard history, and clears the clipboard again after 30 seconds.
+        </p>
+        {#each KEYS as k (k.name)}
+          <div class="item">
+            <div class="item-body">
+              <span class="item-name">{k.label}</span>
+              <span class="hint">{config?.keys[k.name] ? k.use : `Made the first time the ${k.name === 'node' ? 'node' : 'client'} starts.`}</span>
+            </div>
+            <div class="row">
+              <button class="btn small" onclick={() => copyKey(k.name)} disabled={busy || !config?.keys[k.name]}>Copy</button>
+              <button
+                class="btn small"
+                onclick={() => (confirmRotate = k.name)}
+                disabled={busy || !nodeRunningHere || ui.node.status !== 'running'}>New key…</button
+              >
+            </div>
+          </div>
+          {#if confirmRotate === k.name}
+            <div class="warn-note confirm">
+              {#if k.name === 'node'}
+                Replace the node API key? The node restarts once{clientRunning
+                  ? ', and the Lithos Client stops until the node is back'
+                  : ''}. The old key stops working.
+              {:else}
+                Replace the Lithos API key?{clientRunning ? ' The client restarts.' : ''} The old key stops working, so enter
+                the new one wherever you used the old.
+              {/if}
+              <div class="row">
+                <button class="btn small danger" onclick={() => rotateKey(k.name)} disabled={busy}>Replace key</button>
+                <button class="btn small" onclick={() => (confirmRotate = null)} disabled={busy}>Cancel</button>
+              </div>
+            </div>
+          {/if}
+        {/each}
+        {#if !nodeRunningHere || ui.node.status !== 'running'}
+          <span class="hint">Start the {network} node to replace a key: the node computes each new key's hash.</span>
+        {/if}
+        {#if rotating}
+          <p class="info-note" role="status">
+            {rotating === 'node' ? 'Restarting the node with its new key…' : 'Replacing the Lithos API key…'}
+          </p>
+        {/if}
+      </section>
+
+      <section>
+        <h3>Config files · {network}</h3>
+        <p class="note">
+          The launcher only rewrites the marked block at the top of each file. Add your own settings below it: they are
+          kept across restarts and client updates, override the launcher's, and apply the next time the node or client
+          starts.
+        </p>
+        {#each FILES as f (f.name)}
+          {@const file = config?.files[f.name]}
+          <div class="item">
+            <div class="item-body">
+              <span class="item-name mono">{f.file}</span>
+              <span class="path mono">{file?.exists ? file.path : `Created the first time the ${f.owner} starts.`}</span>
+            </div>
+            <div class="row">
+              <button class="btn small" onclick={() => openConfig(f.name, false)} disabled={busy || !file?.exists}>Open</button>
+              <button class="btn small" onclick={() => openConfig(f.name, true)} disabled={busy || !file?.exists}>
+                Show in folder
+              </button>
+            </div>
+          </div>
+          {#if file?.overrides.length}
+            <p class="warn-note">
+              Your settings in {f.file} override ones the launcher relies on:
+              <span class="mono">{file.overrides.join(', ')}</span>. The {f.owner} may not work as expected{f.name ===
+              'client'
+                ? ', and the settings above may not be what the client actually uses'
+                : ''}.
+            </p>
+          {/if}
+        {/each}
+        <span class="hint">
+          Don't edit conf/application.conf inside the client's release folder: each client update replaces it.
+        </span>
+      </section>
     {/if}
 
     {#if message}<p class="ok-note" role="status">{message}</p>{/if}
@@ -322,5 +467,40 @@
 
   select.input {
     appearance: auto;
+  }
+
+  /* A named thing (a key, a file) with its actions on the right. */
+  .item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 10px 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--well);
+  }
+
+  .item-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .item-name {
+    color: var(--text-head);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .item .row {
+    flex: none;
+  }
+
+  .confirm {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 </style>

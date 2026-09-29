@@ -53,6 +53,102 @@ export async function readManagedNumber(file: string, key: string): Promise<numb
   return raw !== null && /^\d+$/.test(raw) ? Number(raw) : null
 }
 
+type Token = { t: 'word'; v: string } | { t: '{' | '}' | '[' | ']' | '=' | ',' | 'nl' }
+
+/** HOCON tokens, without comments or string contents beyond what a key needs. */
+function tokenize(text: string): Token[] {
+  const out: Token[] = []
+  let i = 0
+  while (i < text.length) {
+    const c = text[i]
+    if (c === '\n') {
+      out.push({ t: 'nl' })
+      i++
+    } else if (c === '#' || (c === '/' && text[i + 1] === '/')) {
+      while (i < text.length && text[i] !== '\n') i++
+    } else if (c === '"') {
+      const triple = text.startsWith('"""', i)
+      const end = triple ? text.indexOf('"""', i + 3) : text.indexOf('"', i + 1)
+      const stop = end === -1 ? text.length : end
+      out.push({ t: 'word', v: text.slice(i + (triple ? 3 : 1), stop) })
+      i = stop + (triple ? 3 : 1)
+    } else if ('{}[],'.includes(c)) {
+      out.push({ t: c as '{' | '}' | '[' | ']' | ',' })
+      i++
+    } else if (c === '=' || c === ':' || (c === '+' && text[i + 1] === '=')) {
+      out.push({ t: '=' })
+      i += c === '+' ? 2 : 1
+    } else if (/\s/.test(c)) {
+      i++
+    } else {
+      let j = i
+      while (j < text.length && !/[\s{}[\],=:#"]/.test(text[j]) && !(text[j] === '/' && text[j + 1] === '/')) j++
+      if (j === i) j++ // a stray character; skip it
+      out.push({ t: 'word', v: text.slice(i, j) })
+      i = j
+    }
+  }
+  return out
+}
+
+/** Every dotted path the HOCON text assigns, following `key { … }` nesting. Best effort. */
+export function assignedPaths(text: string): string[] {
+  const tokens = tokenize(text)
+  const paths: string[] = []
+  const stack: string[] = []
+  let i = 0
+  const skipValue = (): void => {
+    // A value runs to the end of the line, a comma, or the object's closing brace; arrays may span lines.
+    let depth = 0
+    while (i < tokens.length) {
+      const t = tokens[i].t
+      if (t === '[' || t === '{') depth++
+      else if (t === ']' || t === '}') {
+        if (depth === 0) return
+        depth--
+      } else if ((t === 'nl' || t === ',') && depth === 0) return
+      i++
+    }
+  }
+  while (i < tokens.length) {
+    const tok = tokens[i]
+    if (tok.t === '}') {
+      stack.pop()
+      i++
+    } else if (tok.t === 'word') {
+      if (tok.v === 'include' && stack.length === 0) {
+        while (i < tokens.length && tokens[i].t !== 'nl') i++
+        continue
+      }
+      const key = [...stack, tok.v].join('.')
+      i++
+      if (tokens[i]?.t === '=') i++
+      if (tokens[i]?.t === '{') {
+        stack.push(tok.v)
+        i++
+      } else {
+        paths.push(key)
+        skipValue()
+      }
+    } else {
+      i++
+    }
+  }
+  return paths
+}
+
+/**
+ * Settings the user placed below the managed block that override `managed` keys (or anything under
+ * them). Later keys win in HOCON, so these beat what the launcher writes.
+ */
+export async function customOverrides(file: string, managed: readonly string[]): Promise<string[]> {
+  const text = await readOrEmpty(file)
+  const at = span(text)
+  const custom = at ? text.slice(at.end + END.length) : ''
+  const hits = assignedPaths(custom).filter((p) => managed.some((k) => p === k || p.startsWith(`${k}.`)))
+  return [...new Set(hits)]
+}
+
 /** Sets `key = value` lines inside the managed block (creating the block if needed); values are raw HOCON. */
 export async function updateManagedLines(file: string, entries: Record<string, string>): Promise<void> {
   const text = await readOrEmpty(file)

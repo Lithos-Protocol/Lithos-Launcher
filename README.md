@@ -31,6 +31,8 @@ what to do next.
 - No secret is written to a config file. `ergo.conf` holds only the API key's hash (computed by the node itself), and
   `lithos.conf` reads the key and password from environment variables set when the client starts.
 - The seed phrase is never stored. It is shown once, when the wallet is created.
+- Settings can copy the node and Lithos API keys for the panels without showing them: the copy is kept out of
+  Windows clipboard history and cleared after 30 seconds. Either key can be replaced with a new one at any time.
 - The node's API listens on `127.0.0.1` only. So does the Lithos panel, unless you open it to your network in Settings
   to check on mining from a phone; it then accepts only this computer's own addresses as host names. Stratum listens on
   your network so other rigs can connect.
@@ -50,7 +52,8 @@ Everything lives in `~/Lithos` (`C:\Users\<you>\Lithos` on Windows) unless you c
 ```
 
 The launcher writes only a clearly marked block at the top of `ergo.conf` and `lithos.conf`. Settings you add below that
-block are kept, and win over the launcher's. The launcher's own settings file (`launcher.json`, in the app's data folder)
+block are kept, and win over the launcher's. Settings opens either file, and warns if your additions override something
+the launcher relies on. The launcher's own settings file (`launcher.json`, in the app's data folder)
 exists only if you change the install folder, memory sizes, or import a setup.
 
 ## Requirements

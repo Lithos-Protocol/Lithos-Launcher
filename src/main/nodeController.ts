@@ -3,10 +3,11 @@ import { EventEmitter } from 'node:events'
 import type { Network, NodeInfo } from '@shared/types'
 import { detectErgo } from './ergo'
 import { diagnose } from './diagnose'
-import { HELLO_HASH, HELLO_KEY, writeNodeConf } from './ergoConf'
+import { HELLO_HASH, HELLO_KEY, MANAGED_NODE_KEYS, writeNodeConf } from './ergoConf'
 import { interrupt } from './interrupt'
 import { detectJre } from './java'
 import { heapPlan, javaEnv, layout, NODE_API_PORT } from './layout'
+import { customOverrides } from './managedBlock'
 import { NodeApi } from './nodeApi'
 import { ManagedProcess } from './process'
 import { errorMessage, isPortListening, sleep } from './util'
@@ -86,6 +87,7 @@ export class NodeController extends EventEmitter {
 
       const stored = this.vault.getNodeKey(network)
       await writeNodeConf(this.root, network, stored?.hash ?? HELLO_HASH)
+      await this.warnAboutOverrides(network)
       this.apiKey = stored?.key ?? HELLO_KEY
       await this.launch(network, ergo.jar, gen)
       if (!stored) await this.rekey(network, ergo.jar, gen)
@@ -112,6 +114,34 @@ export class NodeController extends EventEmitter {
       const crashed = this.proc.state.status === 'crashed'
       this.proc.setState({ status: crashed ? 'crashed' : 'stopped', pid: null, detail: message })
       throw err
+    }
+  }
+
+  /**
+   * Replaces the node's API key with a fresh one: the running node hashes it, and restarts once so
+   * only the new key works. Anything holding the old key (the Lithos Client) must be stopped first.
+   */
+  async rotateKey(network: Network): Promise<void> {
+    const conn = this.connection()
+    if (!conn || conn.network !== network) throw new Error(`Start the ${network} node first`)
+    const key = randomBytes(32).toString('base64url')
+    const hash = await conn.api.blake2b(key)
+    await this.vault.setNodeKey(network, { key, hash })
+    this.proc.log('Replacing the API key. The node restarts once.')
+    await this.stop()
+    await this.start(network)
+    if (!(await new NodeApi(NODE_API_PORT[network]).accepts(key))) throw new Error('The node did not accept its new API key')
+    this.proc.log('The node is using its new API key')
+  }
+
+  /** Logs settings added below the launcher's block that override ones the launcher relies on. */
+  private async warnAboutOverrides(network: Network): Promise<void> {
+    const overrides = await customOverrides(layout.ergoConf(this.root, network), MANAGED_NODE_KEYS).catch(() => [])
+    if (overrides.length) {
+      this.proc.log(
+        `Warning: ergo.conf overrides settings the launcher relies on (${overrides.join(', ')}). ` +
+          'The node or Lithos Client may not work as expected.'
+      )
     }
   }
 

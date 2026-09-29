@@ -248,11 +248,14 @@
     min-height: 0;
   }
 
-  /* A recessed tray for the stacked cards; the scrollbar lives in its right edge. */
+  /*
+   * A recessed tray for the stacked cards. The tray itself clips, so cards scrolling out of view
+   * slide under its rounded border rather than being cut on a straight line inside it.
+   */
   .side-frame {
     display: flex;
     min-height: 0;
-    padding: 10px 2px 10px 10px;
+    overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 26px;
     background: rgba(4, 6, 13, 0.55);
@@ -264,7 +267,13 @@
     flex-direction: column;
     gap: 12px;
     min-height: 0;
+    padding: 10px 2px 10px 10px;
     overflow-y: auto;
     scrollbar-gutter: stable;
+  }
+
+  /* Keep the scrollbar clear of the tray's rounded corners. */
+  .side::-webkit-scrollbar-track {
+    margin: 20px 0;
   }
 </style>

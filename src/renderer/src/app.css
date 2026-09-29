@@ -280,6 +280,11 @@ button {
   text-transform: uppercase;
 }
 
+.btn.small.danger {
+  border-color: rgba(239, 68, 68, 0.38);
+  color: var(--red-light);
+}
+
 .btn:focus-visible,
 .link:focus-visible,
 [role='tab']:focus-visible,

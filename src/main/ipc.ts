@@ -1,25 +1,31 @@
-import { mkdir } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { mkdir, stat } from 'node:fs/promises'
 import { totalmem } from 'node:os'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { app, clipboard, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import {
   IPC,
   isNetwork,
+  type ApiKeyName,
   type AppInfo,
   type ClientSettingsPatch,
+  type ConfigFileInfo,
+  type ConfigName,
   type ImportOptions,
   type LauncherInfo,
   type Network,
   type NodeSettingsPatch,
   type ProcId
 } from '@shared/types'
-import { readClientSettings, updateClientSettings } from './clientConf'
+import { MANAGED_CLIENT_KEYS, readClientSettings, updateClientSettings } from './clientConf'
 import type { ClientController } from './clientController'
-import { readNodeSettings, updateNodeSettings } from './ergoConf'
+import { MANAGED_NODE_KEYS, readNodeSettings, updateNodeSettings } from './ergoConf'
 import type { Importer } from './importer'
 import type { Installer } from './installer'
 import { autoHeap, defaultRoot, heapPlan, layout, NODE_API_PORT } from './layout'
+import { customOverrides } from './managedBlock'
 import type { NodeController } from './nodeController'
+import { copySecret } from './secretClipboard'
 import { settings, updateSettings } from './settings'
 import { lanAddresses, systemCheck } from './system'
 import type { Vault } from './vault'
@@ -76,6 +82,24 @@ function asSettingsPatch(value: unknown): ClientSettingsPatch {
     else throw new Error(`Unknown setting: ${key}`)
   }
   return patch
+}
+
+function asApiKeyName(value: unknown): ApiKeyName {
+  if (value !== 'node' && value !== 'lithos') throw new Error('Invalid key name')
+  return value
+}
+
+function asConfigName(value: unknown): ConfigName {
+  if (value !== 'node' && value !== 'client') throw new Error('Invalid config name')
+  return value
+}
+
+async function configFile(path: string, managed: readonly string[]): Promise<ConfigFileInfo> {
+  const exists = await stat(path).then(
+    (s) => s.isFile(),
+    () => false
+  )
+  return { path, exists, overrides: exists ? await customOverrides(path, managed) : [] }
 }
 
 function asNodeSettingsPatch(value: unknown): NodeSettingsPatch {
@@ -225,6 +249,60 @@ export function registerIpc(ctx: IpcContext): void {
     if (!win) return null
     const picked = await dialog.showOpenDialog(win, { title: asString(title, 200), properties: ['openDirectory'] })
     return picked.canceled ? null : (picked.filePaths[0] ?? null)
+  })
+  const configPath = (network: Network, name: ConfigName): string =>
+    name === 'node' ? layout.ergoConf(ctx.root, network) : layout.clientConf(ctx.root, network)
+  handle(IPC.getConfigInfo, async (n) => {
+    const network = asNetwork(n)
+    return {
+      files: {
+        node: await configFile(configPath(network, 'node'), MANAGED_NODE_KEYS),
+        client: await configFile(configPath(network, 'client'), MANAGED_CLIENT_KEYS)
+      },
+      keys: { node: ctx.vault.getNodeKey(network) !== null, lithos: ctx.vault.getLithosKey(network) !== null }
+    }
+  })
+  handle(IPC.openConfig, async (n, name, reveal) => {
+    const network = asNetwork(n)
+    const config = asConfigName(name)
+    const path = configPath(network, config)
+    if (!(await stat(path).then(() => true, () => false))) {
+      throw new Error(`${config === 'node' ? 'ergo.conf' : 'lithos.conf'} is created the first time the ${config} starts`)
+    }
+    if (asBoolean(reveal)) return shell.showItemInFolder(path)
+    if (!(await shell.openPath(path))) return
+    // .conf usually has no program associated with it on Windows; every Windows has Notepad.
+    if (process.platform === 'win32') {
+      const notepad = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'notepad.exe')
+      spawn(notepad, [path], { detached: true, stdio: 'ignore' }).unref()
+    } else {
+      shell.showItemInFolder(path)
+    }
+  })
+  // The keys go from the vault to the clipboard inside the main process; the renderer never sees them.
+  handle(IPC.copyApiKey, async (n, name) => {
+    const network = asNetwork(n)
+    const which = asApiKeyName(name)
+    const stored = which === 'node' ? ctx.vault.getNodeKey(network) : ctx.vault.getLithosKey(network)
+    if (!stored) {
+      throw new Error(
+        which === 'node'
+          ? `The ${network} node makes its API key the first time it starts`
+          : `The Lithos API key is made the first time the ${network} client starts`
+      )
+    }
+    await copySecret(stored.key)
+  })
+  handle(IPC.rotateApiKey, async (n, name) => {
+    const network = asNetwork(n)
+    if (asApiKeyName(name) === 'lithos') return ctx.client.rotateKey(network)
+    if (ctx.node.runningNetwork !== network || ctx.node.proc.state.status !== 'running') {
+      throw new Error(`Start the ${network} node first`)
+    }
+    // The client talks to the node with the old key, so it stops first. With "Start when ready"
+    // on, the dashboard starts it again once the node is back up.
+    await ctx.client.stop()
+    await ctx.node.rotateKey(network)
   })
   handle(IPC.inspectImport, (n, nodeFolder, clientFolder) =>
     ctx.importer.inspect(

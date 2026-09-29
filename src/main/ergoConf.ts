@@ -13,6 +13,20 @@ const KEYS = {
   offlineGeneration: 'ergo.node.offlineGeneration'
 } as const
 
+/** What the launcher and client rely on; custom settings that change these are flagged. */
+export const MANAGED_NODE_KEYS = [
+  'ergo.directory',
+  'ergo.networkType',
+  'ergo.node.mining',
+  'ergo.node.useExternalMiner',
+  'ergo.node.extraIndex',
+  'ergo.node.mempoolSorting',
+  KEYS.offlineGeneration,
+  'ergo.wallet.secretStorage.secretDir',
+  'scorex.restApi.bindAddress',
+  'scorex.restApi.apiKeyHash'
+] as const
+
 /** Settings from the managed block; the node's own per-network default when never changed. */
 export async function readNodeSettings(root: string, network: Network): Promise<NodeSettings> {
   const raw = await readManagedValue(layout.ergoConf(root, network), KEYS.offlineGeneration)

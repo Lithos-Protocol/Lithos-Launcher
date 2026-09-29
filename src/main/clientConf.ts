@@ -25,6 +25,21 @@ const KEYS = {
   reductionMultiplier: 'stratum.reductionMultiplier'
 } as const
 
+/** What the launcher relies on or sets from its own UI; custom settings that change these are flagged. */
+export const MANAGED_CLIENT_KEYS = [
+  'node.url',
+  'node.key',
+  'node.pass',
+  'node.storagePath',
+  'node.networkType',
+  'node.mempoolSorting',
+  'play.http.secret.key',
+  'play.filters.hosts.allowed',
+  'lithos.apiKeyHash',
+  'stratum.reduceShareMessages',
+  ...Object.values(KEYS)
+] as const
+
 const LOCAL_ADDRESS = '127.0.0.1'
 const ALL_ADDRESSES = '0.0.0.0'
 

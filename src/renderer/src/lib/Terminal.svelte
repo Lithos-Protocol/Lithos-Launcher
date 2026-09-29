@@ -21,6 +21,7 @@
   /** Highlights launcher messages, warnings and errors in otherwise plain log lines. */
   function colorize(line: string): string {
     if (line.includes('\x1b[')) return line
+    if (line.startsWith('[launcher] Warning')) return AMBER + line + RESET
     if (line.startsWith('[launcher]')) return SKY + line + RESET
     if (/\bERROR\b/.test(line)) return RED + line + RESET
     if (/\bWARN\b/.test(line)) return AMBER + line + RESET

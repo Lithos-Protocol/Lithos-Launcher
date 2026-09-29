@@ -36,6 +36,10 @@ const api: LauncherApi = {
   chooseInstallRoot: () => ipcRenderer.invoke(IPC.chooseInstallRoot),
   resetInstallRoot: () => ipcRenderer.invoke(IPC.resetInstallRoot),
   pickFolder: (title) => ipcRenderer.invoke(IPC.pickFolder, title),
+  getConfigInfo: (network) => ipcRenderer.invoke(IPC.getConfigInfo, network),
+  openConfig: (network, name, reveal) => ipcRenderer.invoke(IPC.openConfig, network, name, reveal),
+  copyApiKey: (network, name) => ipcRenderer.invoke(IPC.copyApiKey, network, name),
+  rotateApiKey: (network, name) => ipcRenderer.invoke(IPC.rotateApiKey, network, name),
   inspectImport: (network, nodeFolder, clientFolder) =>
     ipcRenderer.invoke(IPC.inspectImport, network, nodeFolder, clientFolder),
   applyImport: (network, options) => ipcRenderer.invoke(IPC.applyImport, network, options),

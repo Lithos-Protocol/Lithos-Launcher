@@ -164,6 +164,25 @@ export interface LauncherInfo {
   dataDirs: Partial<Record<Network, string>>
 }
 
+/** The node's REST API key, or the Lithos Client's own API key. */
+export type ApiKeyName = 'node' | 'lithos'
+
+/** The launcher's two config files: the node's ergo.conf and the client's lithos.conf. */
+export type ConfigName = 'node' | 'client'
+
+export interface ConfigFileInfo {
+  path: string
+  exists: boolean
+  /** Settings added below the launcher's block that override ones the launcher relies on. */
+  overrides: string[]
+}
+
+export interface NetworkConfigInfo {
+  files: Record<ConfigName, ConfigFileInfo>
+  /** Whether each API key exists yet: the node's is made on its first start, the Lithos key on the client's. */
+  keys: Record<ApiKeyName, boolean>
+}
+
 /** External pages the UI may open; the URLs live in the main process. */
 export type LinkName = 'soat' | 'rigel'
 
@@ -245,6 +264,16 @@ export interface LauncherApi {
   chooseInstallRoot(): Promise<boolean>
   resetInstallRoot(): Promise<void>
   pickFolder(title: string): Promise<string | null>
+  getConfigInfo(network: Network): Promise<NetworkConfigInfo>
+  /** Opens a config file in an editor, or with `reveal` shows it in the file manager. */
+  openConfig(network: Network, name: ConfigName, reveal: boolean): Promise<void>
+  /** Copies an API key from the vault straight to the clipboard, which is cleared again after 30 s. */
+  copyApiKey(network: Network, name: ApiKeyName): Promise<void>
+  /**
+   * Replaces an API key. Both need the node running. The node key restarts the node (the client is
+   * stopped first); the Lithos key restarts a running client.
+   */
+  rotateApiKey(network: Network, name: ApiKeyName): Promise<void>
   inspectImport(network: Network, nodeFolder: string, clientFolder: string | null): Promise<ImportPreview>
   applyImport(network: Network, options: ImportOptions): Promise<void>
   clearImport(network: Network): Promise<void>
@@ -302,6 +331,10 @@ export const IPC = {
   chooseInstallRoot: 'launcher:choose-root',
   resetInstallRoot: 'launcher:reset-root',
   pickFolder: 'launcher:pick-folder',
+  getConfigInfo: 'launcher:config-info',
+  openConfig: 'launcher:open-config',
+  copyApiKey: 'keys:copy',
+  rotateApiKey: 'keys:rotate',
   inspectImport: 'import:inspect',
   applyImport: 'import:apply',
   clearImport: 'import:clear',
