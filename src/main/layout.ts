@@ -1,25 +1,32 @@
 import { homedir, totalmem } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { Network } from '@shared/types'
+import { settings } from './settings'
 
 const EXE = process.platform === 'win32' ? '.exe' : ''
 
+export const defaultRoot = (): string => join(homedir(), 'Lithos')
+
 /**
- * Everything the launcher installs lives under one root, `~/Lithos` by default.
- * LITHOS_LAUNCHER_ROOT overrides it for development and testing.
+ * Everything the launcher installs lives under one root: `~/Lithos` by default, or the folder
+ * chosen in Settings. LITHOS_LAUNCHER_ROOT overrides both for development and testing.
  */
 export function installRoot(): string {
-  return resolve(process.env.LITHOS_LAUNCHER_ROOT || join(homedir(), 'Lithos'))
+  return resolve(process.env.LITHOS_LAUNCHER_ROOT || settings().root || defaultRoot())
 }
+
+/** The node's data folder: the launcher's own, or one adopted from an existing setup. */
+const nodeDataDir = (root: string, net: Network): string =>
+  settings().dataDirs?.[net] ?? join(root, net, 'node', '.ergo')
 
 export const layout = {
   javaDir: (root: string) => join(root, 'java', 'temurin-11-jre'),
   javaBin: (root: string) => join(root, 'java', 'temurin-11-jre', 'bin', `java${EXE}`),
   netDir: (root: string, net: Network) => join(root, net),
   nodeDir: (root: string, net: Network) => join(root, net, 'node'),
-  nodeDataDir: (root: string, net: Network) => join(root, net, 'node', '.ergo'),
+  nodeDataDir,
   ergoConf: (root: string, net: Network) => join(root, net, 'node', 'ergo.conf'),
-  keystoreDir: (root: string, net: Network) => join(root, net, 'node', '.ergo', 'wallet', 'keystore'),
+  keystoreDir: (root: string, net: Network) => join(nodeDataDir(root, net), 'wallet', 'keystore'),
   /**
    * The client's working directory: lithos.conf, .lithos/ data and logs/ live here, while each
    * release unpacks into its own lithos-client-<version>/ subfolder, so updates keep the data.
@@ -29,14 +36,23 @@ export const layout = {
 }
 
 export const NODE_API_PORT: Record<Network, number> = { mainnet: 9053, testnet: 9052 }
+/** Ergo's default peer-to-peer ports (mainnet.conf / testnet.conf in the node jar). */
+export const NODE_P2P_PORT: Record<Network, number> = { mainnet: 9030, testnet: 9023 }
 export const CLIENT_DEFAULT_PORTS = { http: 9000, stratum: 4444 }
 
 /** JVM heap limits sized from system RAM. Starting points; tune with real usage. */
-export function heapPlan(totalBytes = totalmem()): { nodeMb: number; clientMb: number } {
+export function autoHeap(totalBytes = totalmem()): { nodeMb: number; clientMb: number } {
   const gb = totalBytes / 2 ** 30
   if (gb < 12) return { nodeMb: 3072, clientMb: 2048 }
   if (gb < 24) return { nodeMb: 4096, clientMb: 3072 }
   return { nodeMb: 6144, clientMb: 4096 }
+}
+
+/** The heap sizes actually used: Settings overrides, else sized from RAM. */
+export function heapPlan(): { nodeMb: number; clientMb: number } {
+  const auto = autoHeap()
+  const heap = settings().heap
+  return { nodeMb: heap?.nodeMb ?? auto.nodeMb, clientMb: heap?.clientMb ?? auto.clientMb }
 }
 
 /** Environment for Java child processes: our JRE, and no user-level JVM flag injection. */

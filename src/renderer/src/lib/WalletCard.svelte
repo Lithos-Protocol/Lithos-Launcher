@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { shortAddress } from './format'
+  import { bondErg, parseConfigDiff } from '@shared/mining'
+  import { fmtErg, shortAddress } from './format'
   import ProgressBar from './ProgressBar.svelte'
   import { copyText, ui, unlockWallet } from './store.svelte'
 
@@ -10,6 +11,8 @@
 
   const w = $derived(ui.wallet)
   const secure = $derived(ui.vault?.secure ?? false)
+  const diffValue = $derived(parseConfigDiff(ui.clientSettings?.diff))
+  const bond = $derived(diffValue ? bondErg(diffValue) : null)
 
   async function unlock(event: SubmitEvent): Promise<void> {
     event.preventDefault()
@@ -85,6 +88,19 @@
         <code class="mono" title={w.address ?? ''}>{w.address ? shortAddress(w.address) : '—'}</code>
         <button class="btn small" onclick={copy} disabled={!w.address}>{copied ? 'Copied' : 'Copy'}</button>
       </div>
+      <div class="balance">
+        <span class="micro">Balance</span>
+        <span class="mono" class:zero={w.balanceNanoErg === 0}>
+          {w.balanceNanoErg === null ? '—' : `${fmtErg(w.balanceNanoErg)} ERG`}
+        </span>
+      </div>
+      {#if w.balanceNanoErg === 0}
+        <p class="note">
+          Send some ERG to this address. Each proof you submit posts a small refundable bond{bond
+            ? ` (${bond.toFixed(4)} ERG at your difficulty)`
+            : ''} plus a fee.
+        </p>
+      {/if}
       <p class="note">
         {#if w.passwordKnown && secure}
           Unlocks automatically whenever the node starts.
@@ -153,6 +169,18 @@
     padding: 10px 12px;
     border: 1px solid var(--border);
     background: var(--bg-deep);
+  }
+
+  .balance {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    color: var(--text-head);
+    font-size: 13px;
+  }
+
+  .balance .zero {
+    color: #fcd34d;
   }
 
   code {

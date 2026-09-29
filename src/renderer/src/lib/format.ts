@@ -19,6 +19,17 @@ export function fmtEta(seconds: number): string {
   return `about ${Math.round(hours / 24)} days left`
 }
 
+/** nanoERG as ERG with up to 4 decimals, e.g. 0.0021. */
+export function fmtErg(nanoErg: number): string {
+  return Number((nanoErg / 1e9).toFixed(4)).toLocaleString('en-US', { maximumFractionDigits: 4 })
+}
+
+/** GB for big sizes, MB below 1 GB so small folders don't read as 0.0 GB. */
+export function fmtBytesGB(bytes: number): string {
+  if (bytes < 2 ** 30) return `${Math.max(0.1, bytes / 2 ** 20).toFixed(1)} MB`
+  return `${(bytes / 2 ** 30).toFixed(bytes >= 100 * 2 ** 30 ? 0 : 1)} GB`
+}
+
 /** 9fAbc…xYz1 style shortening for long addresses. */
 export function shortAddress(address: string, keep = 8): string {
   return address.length <= keep * 2 + 1 ? address : `${address.slice(0, keep)}…${address.slice(-keep)}`

@@ -2,13 +2,20 @@
   import { onMount } from 'svelte'
   import cube from './assets/cube.svg'
   import ClientCard from './lib/ClientCard.svelte'
+  import CommitDialog from './lib/CommitDialog.svelte'
+  import DifficultyDialog from './lib/DifficultyDialog.svelte'
+  import ImportDialog from './lib/ImportDialog.svelte'
   import LogPanel from './lib/LogPanel.svelte'
+  import MinerDialog from './lib/MinerDialog.svelte'
   import NetworkSwitch from './lib/NetworkSwitch.svelte'
   import NodeCard from './lib/NodeCard.svelte'
+  import QuickSetup from './lib/QuickSetup.svelte'
+  import SettingsDialog from './lib/SettingsDialog.svelte'
+  import ShareDialog from './lib/ShareDialog.svelte'
   import SetupCard from './lib/SetupCard.svelte'
   import WalletCard from './lib/WalletCard.svelte'
   import WalletWizard from './lib/WalletWizard.svelte'
-  import { init, ui } from './lib/store.svelte'
+  import { clientRequirements, init, startClient, ui } from './lib/store.svelte'
 
   let loadError = $state<string | null>(null)
 
@@ -17,6 +24,22 @@
   })
 
   const nodeUp = $derived(ui.node.status === 'running')
+
+  // Start the client by itself once everything it needs is ready: at most once per node run,
+  // and never after a crash or after the user stopped it.
+  let autoStartedFor: number | null = null
+  $effect(() => {
+    const nodePid = ui.node.status === 'running' ? ui.node.pid : null
+    if (nodePid === null) {
+      autoStartedFor = null
+      return
+    }
+    const ready = clientRequirements().every((r) => r.ok)
+    if (ui.autoStartClient && ready && ui.client.status === 'stopped' && autoStartedFor !== nodePid) {
+      autoStartedFor = nodePid
+      void startClient()
+    }
+  })
 </script>
 
 <div class="app">
@@ -47,6 +70,7 @@
         {ui.vault.secure ? 'Keys · OS encrypted' : 'Keys · Session only'}
       </div>
     {/if}
+    <button class="gear" onclick={() => (ui.dialog = 'settings')} aria-label="Settings" title="Settings">⚙</button>
   </header>
 
   {#if loadError}
@@ -65,6 +89,24 @@
     </div>
   </main>
 </div>
+
+{#if ui.quickSetup}
+  <QuickSetup />
+{/if}
+
+{#if ui.dialog === 'difficulty'}
+  <DifficultyDialog />
+{:else if ui.dialog === 'commit'}
+  <CommitDialog />
+{:else if ui.dialog === 'miner'}
+  <MinerDialog />
+{:else if ui.dialog === 'shares'}
+  <ShareDialog />
+{:else if ui.dialog === 'settings'}
+  <SettingsDialog />
+{:else if ui.dialog === 'import'}
+  <ImportDialog />
+{/if}
 
 {#if ui.wizard}
   <WalletWizard />
@@ -160,6 +202,23 @@
 
   .keys.warn .square {
     background: var(--amber);
+  }
+
+  .gear {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--border-strong);
+    background: transparent;
+    color: var(--muted);
+    font-size: 17px;
+    cursor: pointer;
+  }
+
+  .gear:hover {
+    border-color: rgba(56, 189, 248, 0.45);
+    color: var(--text-head);
   }
 
   .load-error {

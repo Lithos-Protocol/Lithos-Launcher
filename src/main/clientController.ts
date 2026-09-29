@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { syncView } from '@shared/sync'
-import type { Network } from '@shared/types'
-import { CLIENT_ENV, clientPorts, writeClientConf } from './clientConf'
+import type { ClientStats, Network } from '@shared/types'
+import { CLIENT_ENV, readClientSettings, writeClientConf } from './clientConf'
 import { interrupt } from './interrupt'
 import { detectJre } from './java'
 import { heapPlan, javaEnv, layout } from './layout'
@@ -14,6 +14,7 @@ import type { WalletManager } from './wallet'
 
 const HTTP_WAIT_MS = 3 * 60_000
 const SHUTDOWN_TIMEOUT_MS = 60_000
+const STATS_POLL_MS = 10_000
 
 /** Thrown inside a start flow that a later start/stop superseded. */
 class Cancelled extends Error {}
@@ -25,6 +26,8 @@ export class ClientController {
   /** Bumped by start() and stop() so an in-flight start notices it was superseded. */
   private generation = 0
   private expectExit = false
+  private statsToken = 0
+  private lastStats: ClientStats | null = null
 
   constructor(
     private readonly root: string,
@@ -32,9 +35,14 @@ export class ClientController {
     private readonly node: NodeController,
     private readonly wallet: WalletManager,
     /** Development only: allow starting before the node is synced. */
-    private readonly skipSyncGate: boolean
+    private readonly skipSyncGate: boolean,
+    private readonly emitStats: (stats: ClientStats | null) => void
   ) {
     this.proc.on('exit', (code: number | null) => this.onExit(code))
+  }
+
+  get stats(): ClientStats | null {
+    return this.lastStats
   }
 
   get runningNetwork(): Network | null {
@@ -64,12 +72,16 @@ export class ClientController {
       if (!this.skipSyncGate && (!info || syncView(info).stage !== 'synced')) {
         throw new Error('Wait until the node is fully synced and indexed')
       }
+      // Verified against the node itself (not cached state) right before launch.
+      await this.wallet.unlockForClient(network)
       const password = this.vault.getWalletPassword(network)
-      if (this.wallet.state.phase !== 'unlocked' || !password) throw new Error('Unlock the wallet first')
+      if (!password) throw new Error('Unlock the wallet first')
       const keystore = await findKeystore(layout.keystoreDir(this.root, network))
       if (!keystore) throw new Error('No wallet keystore was found for this node')
 
-      const ports = await clientPorts(this.root, network)
+      const settings = await readClientSettings(this.root, network)
+      if (!settings.diff) throw new Error('Choose your mining difficulty first')
+      const ports = { http: settings.httpPort, stratum: settings.stratumPort }
       if (await isPortListening(ports.http)) {
         throw new Error(`Port ${ports.http} (Lithos panel) is already in use. Is another Lithos Client running?`)
       }
@@ -95,7 +107,7 @@ export class ClientController {
         appHome: client.home,
         keystore,
         lithosApiKeyHash: lithosKey.hash,
-        ports
+        settings
       })
       this.check(gen)
 
@@ -127,6 +139,12 @@ export class ClientController {
       const up = await this.waitForHttp(ports.http, gen)
       this.proc.setState({ status: 'running', detail: up ? null : 'Started, but the panel is not answering yet' })
       this.proc.log(`Lithos Client is running. Panel: http://127.0.0.1:${ports.http}  Stratum port: ${ports.stratum}`)
+      this.proc.log(
+        settings.autoCommit
+          ? `Difficulty ${settings.diff}, auto-commit on`
+          : `Difficulty ${settings.diff}, auto-commit off (not registered on chain, so no payouts yet)`
+      )
+      this.startStats(ports.http)
     } catch (err) {
       if (err instanceof Cancelled || gen !== this.generation) {
         if (this.proc.alive && this.proc.state.status !== 'stopping') {
@@ -144,8 +162,15 @@ export class ClientController {
     }
   }
 
+  /** Stops and starts again so changed settings take effect. */
+  async restart(network: Network): Promise<void> {
+    await this.stop()
+    await this.start(network)
+  }
+
   async stop(): Promise<void> {
     this.generation++ // cancels an in-progress start
+    this.stopStats()
     if (!this.proc.alive) {
       if (this.proc.state.status !== 'crashed') this.proc.setState({ status: 'stopped', detail: null, ports: null })
       return
@@ -193,7 +218,53 @@ export class ClientController {
     await this.proc.waitForExit(10_000)
   }
 
+  /** Polls the client's open stats endpoints (no API key needed) while it runs. */
+  private startStats(port: number): void {
+    const token = ++this.statsToken
+    const get = async (path: string): Promise<Record<string, unknown> | null> => {
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}${path}`, { signal: AbortSignal.timeout(4000) })
+        return res.ok ? ((await res.json()) as Record<string, unknown>) : null
+      } catch {
+        return null
+      }
+    }
+    const num = (v: unknown): number | null => (typeof v === 'number' ? v : typeof v === 'string' && v !== '' && !isNaN(Number(v)) ? Number(v) : null)
+    const str = (v: unknown): string | null => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : null)
+    const tick = async (): Promise<void> => {
+      const [overview, workers] = await Promise.all([get('/stats'), get('/stats/mining/workers')])
+      if (token !== this.statsToken) return
+      const stratum = ((overview?.local as Record<string, unknown> | undefined)?.stratum ?? {}) as Record<string, unknown>
+      const diff = (stratum.difficulty ?? {}) as Record<string, unknown>
+      if (overview || workers) {
+        this.lastStats = {
+          stratumStatus: str(stratum.status),
+          rigs: num(stratum.connectedConnections) ?? 0,
+          hashesPerSecond: num(workers?.hashesPerSecond),
+          superShares: num(workers?.superShares) ?? 0,
+          superSharesPerHour: num(workers?.superSharesPerHour),
+          committed: str(diff.committed),
+          pending: str(diff.pending),
+          pendingFromHeight: num(diff.pendingFromHeight),
+          forcedConfig: diff.forcedConfig === true
+        }
+        this.emitStats(this.lastStats)
+      }
+      if (token === this.statsToken) setTimeout(tick, STATS_POLL_MS)
+    }
+    void tick()
+  }
+
+  private stopStats(): void {
+    this.statsToken++
+    if (this.lastStats) {
+      this.lastStats = null
+      this.emitStats(null)
+    }
+  }
+
   private onExit(code: number | null): void {
+    this.stopStats()
     if (this.expectExit) {
       this.expectExit = false
       this.proc.log(`Lithos Client stopped${code === null ? '' : ` (exit code ${code})`}`)

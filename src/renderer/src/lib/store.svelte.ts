@@ -1,5 +1,8 @@
 import { syncView } from '@shared/sync'
 import type {
+  ClientSettings,
+  ClientSettingsPatch,
+  ClientStats,
   Network,
   NetworkState,
   NodeInfo,
@@ -12,6 +15,7 @@ import type {
 import { RateTracker } from './format'
 
 const NETWORK_KEY = 'lithos.network'
+const AUTOSTART_KEY = 'lithos.autoStartClient'
 const api = window.lithos
 const syncRate = new RateTracker()
 
@@ -25,6 +29,14 @@ function savedNetwork(): Network {
   return 'mainnet'
 }
 
+function savedAutoStart(): boolean {
+  try {
+    return localStorage.getItem(AUTOSTART_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+
 export const ui = $state({
   network: savedNetwork(),
   net: null as NetworkState | null,
@@ -33,7 +45,21 @@ export const ui = $state({
   info: null as NodeInfo | null,
   /** Seconds until the current sync stage finishes, when it can be estimated. */
   syncEta: null as number | null,
-  wallet: { network: null, phase: 'unavailable', address: null, passwordKnown: false, error: null } as WalletState,
+  wallet: {
+    network: null,
+    phase: 'unavailable',
+    address: null,
+    passwordKnown: false,
+    balanceNanoErg: null,
+    error: null
+  } as WalletState,
+  clientSettings: null as ClientSettings | null,
+  clientStats: null as ClientStats | null,
+  /** Start the client by itself once everything it needs is ready. */
+  autoStartClient: savedAutoStart(),
+  dialog: null as 'difficulty' | 'commit' | 'miner' | 'shares' | 'settings' | 'import' | null,
+  quickSetup: false,
+  platform: '' as string,
   /** Open wallet wizard, if any. */
   wizard: null as 'create' | 'restore' | null,
   progress: {} as Partial<Record<TaskId, TaskProgress>>,
@@ -72,15 +98,19 @@ export async function init(): Promise<void> {
   })
   api.onNodeInfo(applyNodeInfo)
   api.onWallet((w) => (ui.wallet = w))
+  api.onClientStats((st) => (ui.clientStats = st))
   api.onProgress((p) => (ui.progress[p.task] = p))
 
-  const [app, node, client, info, wallet] = await Promise.all([
+  const [app, node, client, info, wallet, stats] = await Promise.all([
     api.getAppInfo(),
     api.getProc('node'),
     api.getProc('client'),
     api.getNodeInfo(),
-    api.getWallet()
+    api.getWallet(),
+    api.getClientStats()
   ])
+  ui.platform = app.platform
+  ui.clientStats = stats
   ui.vault = app.vault
   ui.skipSyncGate = app.skipSyncGate
   ui.lanAddresses = app.lanAddresses
@@ -89,17 +119,24 @@ export async function init(): Promise<void> {
   ui.wallet = wallet
   applyNodeInfo(info)
   await refresh()
+  // First launch: nothing installed yet, so offer the guided setup.
+  ui.quickSetup = ui.net !== null && !ui.net.java.installed
 }
 
 export async function refresh(): Promise<void> {
-  const state = await api.getState(ui.network)
-  if (state.network === ui.network) ui.net = state
+  const network = ui.network
+  const [state, settings] = await Promise.all([api.getState(network), api.getClientSettings(network)])
+  if (network === ui.network) {
+    ui.net = state
+    ui.clientSettings = settings
+  }
 }
 
 export async function setNetwork(network: Network): Promise<void> {
   if (network === ui.network) return
   ui.network = network
   ui.net = null
+  ui.clientSettings = null
   ui.setupError = null
   ui.progress = {}
   try {
@@ -197,4 +234,55 @@ export async function openLithosPanel(): Promise<void> {
   } catch (err) {
     ui.clientError = errorText(err)
   }
+}
+
+export async function restartClient(): Promise<void> {
+  ui.clientError = null
+  try {
+    await api.restartClient(ui.network)
+  } catch (err) {
+    ui.clientError = errorText(err)
+  }
+}
+
+/** Saves mining settings for the selected network. Returns an error message, or null. */
+export async function saveClientSettings(patch: ClientSettingsPatch): Promise<string | null> {
+  try {
+    ui.clientSettings = await api.setClientSettings(ui.network, patch)
+    return null
+  } catch (err) {
+    return errorText(err)
+  }
+}
+
+export function setAutoStartClient(on: boolean): void {
+  ui.autoStartClient = on
+  try {
+    localStorage.setItem(AUTOSTART_KEY, String(on))
+  } catch {
+    // not critical
+  }
+}
+
+export interface Requirement {
+  label: string
+  ok: boolean
+  note: string
+}
+
+/** What the Lithos Client needs before it can start on the selected network. */
+export function clientRequirements(): Requirement[] {
+  const nodeUp = ui.node.status === 'running' && ui.node.network === ui.network
+  const synced = nodeUp && ui.info !== null && syncView(ui.info).stage === 'synced'
+  return [
+    { label: 'Client installed', ok: ui.net?.client.installed ?? false, note: '' },
+    { label: 'Node running', ok: nodeUp, note: '' },
+    {
+      label: 'Node synced',
+      ok: synced || (ui.skipSyncGate && nodeUp),
+      note: ui.skipSyncGate && !synced ? 'skipped (dev)' : ''
+    },
+    { label: 'Wallet unlocked', ok: ui.wallet.phase === 'unlocked' && ui.wallet.network === ui.network, note: '' },
+    { label: 'Difficulty chosen', ok: Boolean(ui.clientSettings?.diff), note: '' }
+  ]
 }

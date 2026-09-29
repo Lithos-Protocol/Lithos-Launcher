@@ -1,11 +1,25 @@
 import { mkdir } from 'node:fs/promises'
-import { networkInterfaces } from 'node:os'
-import { clipboard, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
-import { IPC, isNetwork, type AppInfo, type Network, type ProcId } from '@shared/types'
+import { networkInterfaces, totalmem } from 'node:os'
+import { resolve } from 'node:path'
+import { app, clipboard, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import {
+  IPC,
+  isNetwork,
+  type AppInfo,
+  type ClientSettingsPatch,
+  type ImportOptions,
+  type LauncherInfo,
+  type Network,
+  type ProcId
+} from '@shared/types'
+import { readClientSettings, updateClientSettings } from './clientConf'
 import type { ClientController } from './clientController'
+import type { Importer } from './importer'
 import type { Installer } from './installer'
-import { layout, NODE_API_PORT } from './layout'
+import { autoHeap, defaultRoot, heapPlan, layout, NODE_API_PORT } from './layout'
 import type { NodeController } from './nodeController'
+import { settings, updateSettings } from './settings'
+import { systemCheck } from './system'
 import type { Vault } from './vault'
 import type { WalletManager } from './wallet'
 
@@ -17,6 +31,7 @@ interface IpcContext {
   node: NodeController
   wallet: WalletManager
   client: ClientController
+  importer: Importer
   skipSyncGate: boolean
 }
 
@@ -40,12 +55,57 @@ function asBoolean(value: unknown): boolean {
   return value
 }
 
+/** Only known keys with the right types; values are validated again when written. */
+function asSettingsPatch(value: unknown): ClientSettingsPatch {
+  if (typeof value !== 'object' || value === null) throw new Error('Invalid settings')
+  const v = value as Record<string, unknown>
+  const patch: ClientSettingsPatch = {}
+  for (const key of Object.keys(v)) {
+    if (key === 'diff') patch.diff = asString(v.diff, 16)
+    else if (key === 'autoCommit') patch.autoCommit = asBoolean(v.autoCommit)
+    else if (key === 'forceConfigDiff') patch.forceConfigDiff = asBoolean(v.forceConfigDiff)
+    else if (key === 'httpPort' || key === 'stratumPort' || key === 'reductionMultiplier') {
+      if (typeof v[key] !== 'number') throw new Error('Invalid argument')
+      patch[key] = v[key] as number
+    }
+    else throw new Error(`Unknown setting: ${key}`)
+  }
+  return patch
+}
+
+// The only external pages the UI can open. The renderer names one; it never supplies a URL.
+const LINKS: Record<string, string> = {
+  soat: 'https://github.com/blindrun/soat-miner',
+  rigel: 'https://github.com/rigelminer/rigel/releases'
+}
+
 /** Non-internal IPv4 addresses, for pointing rigs on the LAN at the stratum port. */
 function lanAddresses(): string[] {
   return Object.values(networkInterfaces())
     .flat()
     .filter((a) => a && a.family === 'IPv4' && !a.internal && !a.address.startsWith('169.254.'))
     .map((a) => a!.address)
+}
+
+function launcherInfo(root: string): LauncherInfo {
+  const heap = settings().heap
+  return {
+    root,
+    defaultRoot: defaultRoot(),
+    heap: heapPlan(),
+    autoHeap: autoHeap(),
+    heapOverridden: { node: heap?.nodeMb !== undefined, client: heap?.clientMb !== undefined },
+    dataDirs: { ...settings().dataDirs }
+  }
+}
+
+function asHeapMb(value: unknown): number | null {
+  if (value === null) return null
+  const maxMb = Math.floor(totalmem() / 2 ** 20)
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 512 || value > maxMb) {
+    throw new Error(`Heap sizes are whole megabytes from 512 to ${maxMb}`)
+  }
+  return value
 }
 
 export function registerIpc(ctx: IpcContext): void {
@@ -64,7 +124,12 @@ export function registerIpc(ctx: IpcContext): void {
   handle(IPC.getState, (n) => ctx.installer.state(asNetwork(n)))
   handle(
     IPC.getAppInfo,
-    (): AppInfo => ({ vault: ctx.vault.info, skipSyncGate: ctx.skipSyncGate, lanAddresses: lanAddresses() })
+    (): AppInfo => ({
+      vault: ctx.vault.info,
+      skipSyncGate: ctx.skipSyncGate,
+      lanAddresses: lanAddresses(),
+      platform: process.platform
+    })
   )
   handle(IPC.install, (n) => ctx.installer.install(asNetwork(n)))
   handle(IPC.startNode, (n) => ctx.node.start(asNetwork(n)))
@@ -92,6 +157,93 @@ export function registerIpc(ctx: IpcContext): void {
 
   handle(IPC.startClient, (n) => ctx.client.start(asNetwork(n)))
   handle(IPC.stopClient, () => ctx.client.stop())
+  handle(IPC.restartClient, (n) => ctx.client.restart(asNetwork(n)))
+  handle(IPC.getClientSettings, (n) => readClientSettings(ctx.root, asNetwork(n)))
+  handle(IPC.setClientSettings, (n, patch) => updateClientSettings(ctx.root, asNetwork(n), asSettingsPatch(patch)))
+  handle(IPC.getClientStats, () => ctx.client.stats)
+  handle(IPC.getSystemCheck, (n) => systemCheck(ctx.root, asNetwork(n)))
+  const nothingRunning = (): void => {
+    if (ctx.node.proc.alive || ctx.client.proc.alive) throw new Error('Stop the node and client first')
+  }
+  const relaunch = (): void => {
+    app.relaunch()
+    app.quit()
+  }
+
+  handle(IPC.getLauncherInfo, () => launcherInfo(ctx.root))
+  handle(IPC.setHeap, async (heap) => {
+    const h = (heap ?? {}) as { nodeMb?: unknown; clientMb?: unknown }
+    const nodeMb = asHeapMb(h.nodeMb ?? null)
+    const clientMb = asHeapMb(h.clientMb ?? null)
+    await updateSettings((s) => {
+      s.heap = {
+        ...(nodeMb !== null ? { nodeMb } : {}),
+        ...(clientMb !== null ? { clientMb } : {})
+      }
+      if (!s.heap.nodeMb && !s.heap.clientMb) delete s.heap
+    })
+    return launcherInfo(ctx.root)
+  })
+  handle(IPC.chooseInstallRoot, async () => {
+    nothingRunning()
+    const win = ctx.window()
+    const picked = win
+      ? await dialog.showOpenDialog(win, {
+          title: 'Choose where the launcher installs everything',
+          properties: ['openDirectory', 'createDirectory']
+        })
+      : null
+    const folder = picked && !picked.canceled ? picked.filePaths[0] : null
+    if (!folder) return false
+    await updateSettings((s) => {
+      if (resolve(folder) === resolve(defaultRoot())) delete s.root
+      else s.root = resolve(folder)
+    })
+    relaunch()
+    return true
+  })
+  handle(IPC.resetInstallRoot, async () => {
+    nothingRunning()
+    await updateSettings((s) => {
+      delete s.root
+    })
+    relaunch()
+  })
+  handle(IPC.pickFolder, async (title) => {
+    const win = ctx.window()
+    if (!win) return null
+    const picked = await dialog.showOpenDialog(win, { title: asString(title, 200), properties: ['openDirectory'] })
+    return picked.canceled ? null : (picked.filePaths[0] ?? null)
+  })
+  handle(IPC.inspectImport, (n, nodeFolder, clientFolder) =>
+    ctx.importer.inspect(
+      asNetwork(n),
+      asString(nodeFolder, 1000),
+      clientFolder === null ? null : asString(clientFolder, 1000)
+    )
+  )
+  handle(IPC.applyImport, async (n, options) => {
+    const network = asNetwork(n)
+    if (ctx.node.proc.alive && ctx.node.runningNetwork === network) throw new Error('Stop the node first')
+    const o = (options ?? {}) as Record<string, unknown>
+    const opts: ImportOptions = {
+      importClientSettings: asBoolean(o.importClientSettings),
+      copyLithosData: asBoolean(o.copyLithosData)
+    }
+    await ctx.importer.apply(network, opts)
+  })
+  handle(IPC.clearImport, async (n) => {
+    const network = asNetwork(n)
+    if (ctx.node.proc.alive && ctx.node.runningNetwork === network) throw new Error('Stop the node first')
+    await ctx.importer.clear(network)
+  })
+  handle(IPC.scrubOldSecrets, (n) => ctx.importer.scrubSecrets(asNetwork(n)))
+
+  handle(IPC.openLink, async (name) => {
+    const url = typeof name === 'string' ? LINKS[name] : undefined
+    if (!url) throw new Error('Unknown link')
+    await shell.openExternal(url)
+  })
   handle(IPC.openLithosPanel, async () => {
     const port = ctx.client.httpPort
     if (port === null) throw new Error('The Lithos Client is not running')

@@ -21,7 +21,23 @@ const api: LauncherApi = {
   openFolder: (network) => ipcRenderer.invoke(IPC.openFolder, network),
   startClient: (network) => ipcRenderer.invoke(IPC.startClient, network),
   stopClient: () => ipcRenderer.invoke(IPC.stopClient),
+  restartClient: (network) => ipcRenderer.invoke(IPC.restartClient, network),
   openLithosPanel: () => ipcRenderer.invoke(IPC.openLithosPanel),
+  getClientSettings: (network) => ipcRenderer.invoke(IPC.getClientSettings, network),
+  setClientSettings: (network, patch) => ipcRenderer.invoke(IPC.setClientSettings, network, patch),
+  getClientStats: () => ipcRenderer.invoke(IPC.getClientStats),
+  getSystemCheck: (network) => ipcRenderer.invoke(IPC.getSystemCheck, network),
+  openLink: (name) => ipcRenderer.invoke(IPC.openLink, name),
+  getLauncherInfo: () => ipcRenderer.invoke(IPC.getLauncherInfo),
+  setHeap: (heap) => ipcRenderer.invoke(IPC.setHeap, heap),
+  chooseInstallRoot: () => ipcRenderer.invoke(IPC.chooseInstallRoot),
+  resetInstallRoot: () => ipcRenderer.invoke(IPC.resetInstallRoot),
+  pickFolder: (title) => ipcRenderer.invoke(IPC.pickFolder, title),
+  inspectImport: (network, nodeFolder, clientFolder) =>
+    ipcRenderer.invoke(IPC.inspectImport, network, nodeFolder, clientFolder),
+  applyImport: (network, options) => ipcRenderer.invoke(IPC.applyImport, network, options),
+  clearImport: (network) => ipcRenderer.invoke(IPC.clearImport, network),
+  scrubOldSecrets: (network) => ipcRenderer.invoke(IPC.scrubOldSecrets, network),
   getWallet: () => ipcRenderer.invoke(IPC.getWallet),
   createWallet: (password) => ipcRenderer.invoke(IPC.createWallet, password),
   restoreWallet: (mnemonic, password) => ipcRenderer.invoke(IPC.restoreWallet, mnemonic, password),
@@ -32,7 +48,8 @@ const api: LauncherApi = {
   onProcState: (cb) => subscribe(IPC.procState, cb),
   onLogs: (cb) => subscribe(IPC.logs, cb),
   onNodeInfo: (cb) => subscribe(IPC.nodeInfo, cb),
-  onWallet: (cb) => subscribe(IPC.wallet, cb)
+  onWallet: (cb) => subscribe(IPC.wallet, cb),
+  onClientStats: (cb) => subscribe(IPC.clientStats, cb)
 }
 
 contextBridge.exposeInMainWorld('lithos', api)

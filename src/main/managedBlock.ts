@@ -15,35 +15,53 @@ async function readOrEmpty(file: string): Promise<string> {
   }
 }
 
-function blockOf(text: string): string | null {
+function span(text: string): { begin: number; end: number } | null {
   const begin = text.indexOf(BEGIN)
   const end = text.indexOf(END)
-  return begin !== -1 && end > begin ? text.slice(begin, end) : null
+  return begin !== -1 && end > begin ? { begin, end } : null
 }
+
+const keyPattern = (key: string): RegExp =>
+  new RegExp(`^[ \\t]*${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[ \\t]*=[ \\t]*(.*?)[ \\t]*$`, 'm')
 
 /** Replaces the managed block in `file` with `lines`, or prepends one, leaving everything else untouched. */
 export async function writeManagedBlock(file: string, lines: string[]): Promise<void> {
   const block = [BEGIN, ...lines, END].join('\n')
   const existing = await readOrEmpty(file)
-  const begin = existing.indexOf(BEGIN)
-  const end = existing.indexOf(END)
-  const next =
-    begin !== -1 && end > begin
-      ? existing.slice(0, begin) + block + existing.slice(end + END.length)
-      : existing.trim()
-        ? `${block}\n\n${existing}`
-        : `${block}\n`
+  const at = span(existing)
+  const next = at
+    ? existing.slice(0, at.begin) + block + existing.slice(at.end + END.length)
+    : existing.trim()
+      ? `${block}\n\n${existing}`
+      : `${block}\n`
   await writeFileAtomic(file, next)
 }
 
 /**
- * Reads a `key = number` line back from the managed block (the launcher writes these
- * one per line), so choices like ports survive when the block is regenerated.
+ * The raw value of a top-level `key = value` line in the managed block (the launcher writes its
+ * settings one per line), so choices survive when the block is regenerated.
  */
+export async function readManagedValue(file: string, key: string): Promise<string | null> {
+  const text = await readOrEmpty(file)
+  const at = span(text)
+  if (!at) return null
+  return keyPattern(key).exec(text.slice(at.begin, at.end))?.[1] ?? null
+}
+
 export async function readManagedNumber(file: string, key: string): Promise<number | null> {
-  const block = blockOf(await readOrEmpty(file))
-  if (!block) return null
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = new RegExp(`^\\s*${escaped}\\s*=\\s*(\\d+)\\s*$`, 'm').exec(block)
-  return match ? Number(match[1]) : null
+  const raw = await readManagedValue(file, key)
+  return raw !== null && /^\d+$/.test(raw) ? Number(raw) : null
+}
+
+/** Sets `key = value` lines inside the managed block (creating the block if needed); values are raw HOCON. */
+export async function updateManagedLines(file: string, entries: Record<string, string>): Promise<void> {
+  const text = await readOrEmpty(file)
+  const at = span(text)
+  let inner = at ? text.slice(at.begin + BEGIN.length, at.end) : '\n'
+  for (const [key, value] of Object.entries(entries)) {
+    const line = `${key} = ${value}`
+    inner = keyPattern(key).test(inner) ? inner.replace(keyPattern(key), line) : `${inner}${line}\n`
+  }
+  const lines = inner.split('\n').filter((l, i, all) => !(l === '' && (i === 0 || i === all.length - 1)))
+  await writeManagedBlock(file, lines)
 }

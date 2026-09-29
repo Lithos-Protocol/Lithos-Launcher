@@ -2,10 +2,12 @@ import { join } from 'node:path'
 import { app, BrowserWindow, dialog, Menu, nativeTheme, session } from 'electron'
 import { IPC } from '@shared/types'
 import { ClientController } from './clientController'
+import { Importer } from './importer'
 import { Installer } from './installer'
 import { registerIpc } from './ipc'
 import { installRoot } from './layout'
 import { NodeController } from './nodeController'
+import { loadSettings } from './settings'
 import { Vault } from './vault'
 import { WalletManager } from './wallet'
 
@@ -15,6 +17,9 @@ app.enableSandbox()
 if (!app.isPackaged && process.env.LITHOS_LAUNCHER_ROOT) {
   app.setPath('userData', join(installRoot(), '.launcher-profile'))
 }
+
+// launcher.json (install folder, heap overrides, adopted data folders) is read before anything else.
+loadSettings()
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -103,11 +108,12 @@ function main(): void {
     const wallet = new WalletManager(node, vault)
     wallet.on('state', (s) => send(IPC.wallet, s))
     const skipSyncGate = !app.isPackaged && process.env.LITHOS_LAUNCHER_SKIP_SYNC_GATE === '1'
-    const client = new ClientController(root, vault, node, wallet, skipSyncGate)
+    const client = new ClientController(root, vault, node, wallet, skipSyncGate, (s) => send(IPC.clientStats, s))
     client.proc.on('state', (s) => send(IPC.procState, s))
     client.proc.on('logs', (chunk) => send(IPC.logs, chunk))
 
-    registerIpc({ window: () => win, root, vault, installer, node, wallet, client, skipSyncGate })
+    const importer = new Importer(root)
+    registerIpc({ window: () => win, root, vault, installer, node, wallet, client, importer, skipSyncGate })
 
     win = createWindow()
     win.on('closed', () => (win = null))

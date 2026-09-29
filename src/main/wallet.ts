@@ -12,7 +12,14 @@ import type { Vault } from './vault'
 
 const POLL_MS = 10_000
 
-const UNAVAILABLE: WalletState = { network: null, phase: 'unavailable', address: null, passwordKnown: false, error: null }
+const UNAVAILABLE: WalletState = {
+  network: null,
+  phase: 'unavailable',
+  address: null,
+  passwordKnown: false,
+  balanceNanoErg: null,
+  error: null
+}
 
 function checkPassword(password: string): void {
   if (password.length < MIN_PASSWORD_LENGTH) {
@@ -37,6 +44,8 @@ export class WalletManager extends EventEmitter {
   private current: WalletState = UNAVAILABLE
   private pollToken = 0
   private unlocking = false
+  /** One automatic re-unlock per lock; reset once the wallet is unlocked again. */
+  private relockTried = false
 
   constructor(
     private readonly node: NodeController,
@@ -86,6 +95,23 @@ export class WalletManager extends EventEmitter {
     await this.refresh()
   }
 
+  /**
+   * Checks the node wallet through the API right now and unlocks it if needed. The Lithos
+   * Client relies on an unlocked node wallet: emission joins derive new keys through it, and
+   * the node's candidate generation may not start without it.
+   */
+  async unlockForClient(network: Network): Promise<void> {
+    const conn = this.connection()
+    if (conn.network !== network) throw new Error(`Start the ${network} node first`)
+    const status = await conn.api.walletStatus(conn.apiKey)
+    if (!status.isInitialized) throw new Error('Create or restore the wallet first')
+    if (status.isUnlocked) return
+    const password = this.vault.getWalletPassword(network)
+    if (!password) throw new Error('Unlock the wallet first')
+    await this.tryUnlock(conn, password)
+    if (this.current.phase !== 'unlocked') throw new Error(this.current.error ?? 'The wallet did not unlock')
+  }
+
   private connection(): NodeConnection {
     const conn = this.node.connection()
     if (!conn) throw new Error('Start the node first')
@@ -95,6 +121,8 @@ export class WalletManager extends EventEmitter {
   private async onNodeReady(network: Network): Promise<void> {
     const conn = this.node.connection()
     const saved = this.vault.getWalletPassword(network)
+    // This start-up unlock counts as the one automatic attempt for this lock.
+    this.relockTried = saved !== null
     // With a known password, go straight to unlocking so the UI never flashes a password form.
     if (conn && saved) {
       try {
@@ -146,16 +174,44 @@ export class WalletManager extends EventEmitter {
       const s = await conn.api.walletStatus(conn.apiKey)
       if (this.unlocking) return
       const phase = !s.isInitialized ? 'uninitialized' : s.isUnlocked ? 'unlocked' : 'locked'
+      let balanceNanoErg: number | null = null
+      if (s.isUnlocked) {
+        try {
+          balanceNanoErg = await conn.api.walletBalance(conn.apiKey)
+        } catch {
+          balanceNanoErg = this.current.balanceNanoErg // keep the last reading on a hiccup
+        }
+      }
+      if (this.unlocking) return
       this.set({
         network: conn.network,
         phase,
         address: s.isUnlocked && s.changeAddress ? s.changeAddress : null,
         passwordKnown: this.vault.getWalletPassword(conn.network) !== null,
+        balanceNanoErg,
         error: phase === 'locked' ? this.current.error : null
       })
+      await this.relockGuard(conn, phase)
     } catch {
       // node busy; keep the last known state
     }
+  }
+
+  /**
+   * The Lithos Client needs the node wallet unlocked the whole time it runs. If it becomes
+   * locked (e.g. through the node panel), unlock it again once with the known password; a
+   * failed attempt waits for the user instead of retrying every poll.
+   */
+  private async relockGuard(conn: NodeConnection, phase: WalletState['phase']): Promise<void> {
+    if (phase === 'unlocked') {
+      this.relockTried = false
+      return
+    }
+    const password = this.vault.getWalletPassword(conn.network)
+    if (phase !== 'locked' || !password || this.relockTried) return
+    this.relockTried = true
+    this.node.proc.log('The node wallet was locked; unlocking it again')
+    await this.tryUnlock(conn, password)
   }
 
   private startPolling(): void {

@@ -103,6 +103,13 @@ export class NodeApi {
     await this.call('POST', '/wallet/restore', apiKey, { pass, mnemonic, usePre1627KeyDerivation: false })
   }
 
+  /** Confirmed wallet balance in nanoERG (the wallet must be unlocked). */
+  async walletBalance(apiKey: string): Promise<number> {
+    const body = await this.call<{ balance?: unknown }>('GET', '/wallet/balances', apiKey)
+    if (typeof body.balance !== 'number') throw new Error('The node returned no balance')
+    return body.balance
+  }
+
   async walletUnlock(apiKey: string, pass: string): Promise<void> {
     await this.call('POST', '/wallet/unlock', apiKey, { pass })
   }

@@ -1,8 +1,12 @@
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Network } from '@shared/types'
-import { CLIENT_DEFAULT_PORTS, layout } from './layout'
-import { readManagedNumber, writeManagedBlock } from './managedBlock'
+import { CONFIG_DIFF_RE } from '@shared/mining'
+import {
+  DEFAULT_REDUCTION_MULTIPLIER,
+  REDUCTION_MULTIPLIERS,
+  type ClientSettings, type ClientSettingsPatch, type Network } from '@shared/types'
+import { CLIENT_DEFAULT_PORTS, layout, NODE_API_PORT, NODE_P2P_PORT } from './layout'
+import { readManagedNumber, readManagedValue, updateManagedLines, writeManagedBlock } from './managedBlock'
 
 /** Environment variables the client reads its secrets from (names from the client README). */
 export const CLIENT_ENV = {
@@ -11,18 +15,79 @@ export const CLIENT_ENV = {
   playSecret: 'PLAY_ENV'
 } as const
 
-export interface ClientPorts {
-  http: number
-  stratum: number
+const KEYS = {
+  httpPort: 'play.server.http.port',
+  stratumPort: 'stratum.stratumPort',
+  diff: 'stratum.diff',
+  autoCommit: 'state.autoCommit',
+  forceConfigDiff: 'stratum.forceConfigDiff',
+  reductionMultiplier: 'stratum.reductionMultiplier'
+} as const
+
+function parseQuoted(raw: string | null): string | null {
+  if (raw === null) return null
+  try {
+    const value = JSON.parse(raw)
+    return typeof value === 'string' ? value : null
+  } catch {
+    return null
+  }
 }
 
-/** Ports from the managed block, so a choice made earlier (or by Advanced setup) sticks. */
-export async function clientPorts(root: string, network: Network): Promise<ClientPorts> {
+/** Settings from the managed block, so choices stick across rewrites and releases. */
+export async function readClientSettings(root: string, network: Network): Promise<ClientSettings> {
   const file = layout.clientConf(root, network)
   return {
-    http: (await readManagedNumber(file, 'play.server.http.port')) ?? CLIENT_DEFAULT_PORTS.http,
-    stratum: (await readManagedNumber(file, 'stratum.stratumPort')) ?? CLIENT_DEFAULT_PORTS.stratum
+    diff: parseQuoted(await readManagedValue(file, KEYS.diff)),
+    autoCommit: (await readManagedValue(file, KEYS.autoCommit)) === 'true',
+    forceConfigDiff: (await readManagedValue(file, KEYS.forceConfigDiff)) === 'true',
+    httpPort: (await readManagedNumber(file, KEYS.httpPort)) ?? CLIENT_DEFAULT_PORTS.http,
+    stratumPort: (await readManagedNumber(file, KEYS.stratumPort)) ?? CLIENT_DEFAULT_PORTS.stratum,
+    reductionMultiplier: (await readManagedNumber(file, KEYS.reductionMultiplier)) ?? DEFAULT_REDUCTION_MULTIPLIER
   }
+}
+
+function checkPort(port: number, what: string, network: Network): void {
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error(`${what} must be a port from 1024 to 65535`)
+  if (port === NODE_API_PORT[network] || port === NODE_P2P_PORT[network]) {
+    throw new Error(`${what} can't use ${port}: the ${network} node needs it`)
+  }
+}
+
+/** Validates and saves mining settings; the client reads them on its next start. */
+export async function updateClientSettings(
+  root: string,
+  network: Network,
+  patch: ClientSettingsPatch
+): Promise<ClientSettings> {
+  const entries: Record<string, string> = {}
+  if (patch.diff !== undefined) {
+    if (patch.diff === null || !CONFIG_DIFF_RE.test(patch.diff)) {
+      throw new Error('A difficulty looks like "48M" or "1.2G": a number and a K, M, G, T or P suffix')
+    }
+    entries[KEYS.diff] = JSON.stringify(patch.diff)
+  }
+  if (patch.autoCommit !== undefined) entries[KEYS.autoCommit] = String(patch.autoCommit)
+  if (patch.forceConfigDiff !== undefined) entries[KEYS.forceConfigDiff] = String(patch.forceConfigDiff)
+  if (patch.httpPort !== undefined || patch.stratumPort !== undefined) {
+    const current = await readClientSettings(root, network)
+    const http = patch.httpPort ?? current.httpPort
+    const stratum = patch.stratumPort ?? current.stratumPort
+    checkPort(http, 'The panel port', network)
+    checkPort(stratum, 'The stratum port', network)
+    if (http === stratum) throw new Error('The panel and stratum need different ports')
+    entries[KEYS.httpPort] = String(http)
+    entries[KEYS.stratumPort] = String(stratum)
+  }
+  if (patch.reductionMultiplier !== undefined) {
+    if (!(REDUCTION_MULTIPLIERS as readonly number[]).includes(patch.reductionMultiplier)) {
+      throw new Error(`The share reporting multiplier is one of ${REDUCTION_MULTIPLIERS.join(', ')}`)
+    }
+    entries[KEYS.reductionMultiplier] = String(patch.reductionMultiplier)
+  }
+  await mkdir(layout.clientDir(root, network), { recursive: true })
+  await updateManagedLines(layout.clientConf(root, network), entries)
+  return readClientSettings(root, network)
 }
 
 interface ClientConf {
@@ -30,7 +95,7 @@ interface ClientConf {
   appHome: string
   keystore: string
   lithosApiKeyHash: string
-  ports: ClientPorts
+  settings: ClientSettings
 }
 
 /**
@@ -40,7 +105,8 @@ interface ClientConf {
 function clientBlock(c: ClientConf): string[] {
   const q = JSON.stringify // JSON strings are valid HOCON quoted strings
   const env = (name: string): string => `\${?${name}}`
-  return [
+  const s = c.settings
+  const lines = [
     // Absolute path: include file() resolves relative paths against the working directory.
     `include file(${q(join(c.appHome, 'conf', 'application.conf'))})`,
     'node {',
@@ -54,18 +120,21 @@ function clientBlock(c: ClientConf): string[] {
     '  mempoolSorting = "bySize"',
     '}',
     `play.http.secret.key = ${env(CLIENT_ENV.playSecret)}`,
+    `lithos.apiKeyHash = ${q(c.lithosApiKeyHash)}`,
     // Play listens on 0.0.0.0 by default; keep the panel and API on this machine.
     // Stratum has no bind setting and listens on all interfaces, which rigs on the LAN need.
     'play.server.http.address = "127.0.0.1"',
-    `play.server.http.port = ${c.ports.http}`,
-    `stratum.stratumPort = ${c.ports.stratum}`,
-    `lithos.apiKeyHash = ${q(c.lithosApiKeyHash)}`
+    `${KEYS.httpPort} = ${s.httpPort}`,
+    `${KEYS.stratumPort} = ${s.stratumPort}`
   ]
+  if (s.diff) lines.push(`${KEYS.diff} = ${q(s.diff)}`)
+  lines.push('stratum.reduceShareMessages = true', `${KEYS.reductionMultiplier} = ${s.reductionMultiplier}`)
+  // Registration and commitment are on-chain and lock the difficulty for 845 blocks: opt-in only.
+  lines.push(`${KEYS.autoCommit} = ${s.autoCommit}`, `${KEYS.forceConfigDiff} = ${s.forceConfigDiff}`)
+  return lines
 }
 
-export async function writeClientConf(root: string, conf: Omit<ClientConf, 'ports'> & { ports?: ClientPorts }) {
-  const ports = conf.ports ?? (await clientPorts(root, conf.network))
+export async function writeClientConf(root: string, conf: ClientConf): Promise<void> {
   await mkdir(layout.clientDir(root, conf.network), { recursive: true })
-  await writeManagedBlock(layout.clientConf(root, conf.network), clientBlock({ ...conf, ports }))
-  return ports
+  await writeManagedBlock(layout.clientConf(root, conf.network), clientBlock(conf))
 }
