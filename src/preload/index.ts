@@ -39,7 +39,7 @@ const api: LauncherApi = {
   getConfigInfo: (network) => ipcRenderer.invoke(IPC.getConfigInfo, network),
   openConfig: (network, name, reveal) => ipcRenderer.invoke(IPC.openConfig, network, name, reveal),
   copyApiKey: (network, name) => ipcRenderer.invoke(IPC.copyApiKey, network, name),
-  rotateApiKey: (network, name) => ipcRenderer.invoke(IPC.rotateApiKey, network, name),
+  replaceApiKey: (network, name, key) => ipcRenderer.invoke(IPC.replaceApiKey, network, name, key),
   inspectImport: (network, nodeFolder, clientFolder) =>
     ipcRenderer.invoke(IPC.inspectImport, network, nodeFolder, clientFolder),
   applyImport: (network, options) => ipcRenderer.invoke(IPC.applyImport, network, options),

@@ -167,6 +167,10 @@ export interface LauncherInfo {
 /** The node's REST API key, or the Lithos Client's own API key. */
 export type ApiKeyName = 'node' | 'lithos'
 
+/** A key you choose yourself. It travels in an HTTP header, so printable ASCII without spaces. */
+export const MIN_API_KEY_LENGTH = 16
+export const API_KEY_RE = /^[\x21-\x7e]{16,256}$/
+
 /** The launcher's two config files: the node's ergo.conf and the client's lithos.conf. */
 export type ConfigName = 'node' | 'client'
 
@@ -179,8 +183,6 @@ export interface ConfigFileInfo {
 
 export interface NetworkConfigInfo {
   files: Record<ConfigName, ConfigFileInfo>
-  /** Whether each API key exists yet: the node's is made on its first start, the Lithos key on the client's. */
-  keys: Record<ApiKeyName, boolean>
 }
 
 /** External pages the UI may open; the URLs live in the main process. */
@@ -270,10 +272,11 @@ export interface LauncherApi {
   /** Copies an API key from the vault straight to the clipboard, which is cleared again after 30 s. */
   copyApiKey(network: Network, name: ApiKeyName): Promise<void>
   /**
-   * Replaces an API key. Both need the node running. The node key restarts the node (the client is
-   * stopped first); the Lithos key restarts a running client.
+   * Replaces an API key with `key`, or a new random one when null. The node hashes it, so the node
+   * must be running. The node key restarts the node (the client is stopped first); the Lithos key
+   * restarts a running client. Keys are only ever stored encrypted.
    */
-  rotateApiKey(network: Network, name: ApiKeyName): Promise<void>
+  replaceApiKey(network: Network, name: ApiKeyName, key: string | null): Promise<void>
   inspectImport(network: Network, nodeFolder: string, clientFolder: string | null): Promise<ImportPreview>
   applyImport(network: Network, options: ImportOptions): Promise<void>
   clearImport(network: Network): Promise<void>
@@ -334,7 +337,7 @@ export const IPC = {
   getConfigInfo: 'launcher:config-info',
   openConfig: 'launcher:open-config',
   copyApiKey: 'keys:copy',
-  rotateApiKey: 'keys:rotate',
+  replaceApiKey: 'keys:replace',
   inspectImport: 'import:inspect',
   applyImport: 'import:apply',
   clearImport: 'import:clear',

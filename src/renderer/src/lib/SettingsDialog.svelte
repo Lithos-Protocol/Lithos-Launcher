@@ -5,6 +5,8 @@
     DEFAULT_REDUCTION_MULTIPLIER,
     NETWORKS,
     REDUCTION_MULTIPLIERS,
+    API_KEY_RE,
+    MIN_API_KEY_LENGTH,
     type ApiKeyName,
     type ConfigName,
     type LauncherInfo,
@@ -25,7 +27,10 @@
   let testMode = $state(false)
   let lanPanel = $state(false)
   let config = $state<NetworkConfigInfo | null>(null)
-  let confirmRotate = $state<ApiKeyName | null>(null)
+  /** The key being replaced: with a new random one, or with one the user types. */
+  let editing = $state<{ name: ApiKeyName; mode: 'new' | 'set' } | null>(null)
+  let customKey = $state('')
+  let showKey = $state(false)
   let rotating = $state<ApiKeyName | null>(null)
   let message = $state<string | null>(null)
   let error = $state<string | null>(null)
@@ -51,6 +56,8 @@
   const running = $derived(ui.node.status !== 'stopped' && ui.node.status !== 'crashed')
   const nodeRunningHere = $derived(running && ui.node.network === network)
   const clientRunning = $derived(ui.client.status === 'running' && ui.client.network === network)
+  // The node hashes every new key, so replacing one needs this network's node up.
+  const canReplace = $derived(nodeRunningHere && ui.node.status === 'running')
   // The first address is this computer's main network adapter (virtual ones are listed last).
   const lanUrl = $derived(ui.lanAddresses[0] ? `http://${ui.lanAddresses[0]}:${httpPort || 9000}` : null)
 
@@ -138,22 +145,24 @@
       return 'Saved. The client uses these settings the next time it starts.'
     })
 
-  const copyKey = (name: ApiKeyName): Promise<void> =>
-    run(async () => {
-      await api.copyApiKey(network, name)
-      return `Copied the ${name === 'node' ? 'node' : 'Lithos'} API key. The clipboard clears itself in 30 seconds.`
-    })
+  function startEdit(name: ApiKeyName, mode: 'new' | 'set'): void {
+    editing = { name, mode }
+    customKey = ''
+    showKey = false
+  }
 
-  const rotateKey = (name: ApiKeyName): Promise<void> =>
+  const replaceKey = (name: ApiKeyName): Promise<void> =>
     run(async () => {
-      confirmRotate = null
+      const chosen = editing?.mode === 'set' ? customKey : null
+      editing = null
       rotating = name
       try {
-        await api.rotateApiKey(network, name)
+        await api.replaceApiKey(network, name, chosen)
       } finally {
         rotating = null
+        customKey = ''
+        showKey = false
       }
-      await loadConfig()
       if (name === 'lithos') {
         return clientRunning
           ? 'New Lithos API key in use; the client restarted with it. Update it wherever you entered the old one.'
@@ -319,42 +328,77 @@
       <section>
         <h3>API keys · {network}</h3>
         <p class="note">
-          Paste a key where a panel asks for one. The launcher copies it without showing it, keeps it out of Windows
-          clipboard history, and clears the clipboard again after 30 seconds.
+          Copy a key from its card on the dashboard. Here you can replace one that may have leaked with a new random
+          key, or set a key you choose. Either way it is stored only encrypted by your operating system, never in a
+          file.
         </p>
         {#each KEYS as k (k.name)}
           <div class="item">
             <div class="item-body">
               <span class="item-name">{k.label}</span>
-              <span class="hint">{config?.keys[k.name] ? k.use : `Made the first time the ${k.name === 'node' ? 'node' : 'client'} starts.`}</span>
+              <span class="hint">{k.use}</span>
             </div>
             <div class="row">
-              <button class="btn small" onclick={() => copyKey(k.name)} disabled={busy || !config?.keys[k.name]}>Copy</button>
-              <button
-                class="btn small"
-                onclick={() => (confirmRotate = k.name)}
-                disabled={busy || !nodeRunningHere || ui.node.status !== 'running'}>New key…</button
-              >
+              <button class="btn small" onclick={() => startEdit(k.name, 'new')} disabled={busy || !canReplace}>
+                New key…
+              </button>
+              <button class="btn small" onclick={() => startEdit(k.name, 'set')} disabled={busy || !canReplace}>
+                Set key…
+              </button>
             </div>
           </div>
-          {#if confirmRotate === k.name}
-            <div class="warn-note confirm">
-              {#if k.name === 'node'}
-                Replace the node API key? The node restarts once{clientRunning
-                  ? ', and the Lithos Client stops until the node is back'
-                  : ''}. The old key stops working.
-              {:else}
-                Replace the Lithos API key?{clientRunning ? ' The client restarts.' : ''} The old key stops working, so enter
-                the new one wherever you used the old.
+          {#if editing?.name === k.name}
+            <form
+              class="warn-note confirm"
+              onsubmit={(e) => {
+                e.preventDefault()
+                void replaceKey(k.name)
+              }}
+            >
+              {#if editing.mode === 'set'}
+                <div class="field">
+                  <label class="micro" for="key-{k.name}">Your {k.name === 'node' ? 'node' : 'Lithos'} API key</label>
+                  <input
+                    id="key-{k.name}"
+                    class="input mono"
+                    type={showKey ? 'text' : 'password'}
+                    autocomplete="off"
+                    spellcheck="false"
+                    bind:value={customKey}
+                  />
+                </div>
+                <label class="check"><input type="checkbox" bind:checked={showKey} /> Show key</label>
+                {#if customKey && !API_KEY_RE.test(customKey)}
+                  <span class="hint">
+                    Use at least {MIN_API_KEY_LENGTH} characters: letters, digits and symbols, no spaces.
+                  </span>
+                {/if}
               {/if}
+              <span>
+                {#if k.name === 'node'}
+                  {editing.mode === 'set' ? 'Use this key for the node?' : 'Replace the node API key?'} The node restarts
+                  once{clientRunning ? ', and the Lithos Client stops until the node is back' : ''}. The old key stops
+                  working.
+                {:else}
+                  {editing.mode === 'set' ? 'Use this key for the Lithos Client?' : 'Replace the Lithos API key?'}
+                  {clientRunning ? 'The client restarts. ' : ''}The old key stops working, so enter the new one wherever
+                  you used the old.
+                {/if}
+              </span>
               <div class="row">
-                <button class="btn small danger" onclick={() => rotateKey(k.name)} disabled={busy}>Replace key</button>
-                <button class="btn small" onclick={() => (confirmRotate = null)} disabled={busy}>Cancel</button>
+                <button
+                  class="btn small danger"
+                  type="submit"
+                  disabled={busy || (editing.mode === 'set' && !API_KEY_RE.test(customKey))}
+                >
+                  {editing.mode === 'set' ? 'Use this key' : 'Replace key'}
+                </button>
+                <button class="btn small" type="button" onclick={() => (editing = null)} disabled={busy}>Cancel</button>
               </div>
-            </div>
+            </form>
           {/if}
         {/each}
-        {#if !nodeRunningHere || ui.node.status !== 'running'}
+        {#if !canReplace}
           <span class="hint">Start the {network} node to replace a key: the node computes each new key's hash.</span>
         {/if}
         {#if rotating}

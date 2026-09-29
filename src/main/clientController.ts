@@ -181,11 +181,14 @@ export class ClientController {
     }
   }
 
-  /** Replaces the Lithos API key (hashed by the node). A running client restarts to use it. */
-  async rotateKey(network: Network): Promise<void> {
+  /**
+   * Replaces the Lithos API key with `chosen`, or a fresh random one, hashed by the node. A running
+   * client restarts to use it.
+   */
+  async replaceKey(network: Network, chosen: string | null): Promise<void> {
     const conn = this.node.connection()
     if (!conn || conn.network !== network) throw new Error(`Start the ${network} node first`)
-    const key = randomBytes(32).toString('base64url')
+    const key = chosen ?? randomBytes(32).toString('base64url')
     await this.vault.setLithosKey(network, { key, hash: await conn.api.blake2b(key) })
     this.proc.log('Replaced the Lithos API key')
     if (this.runningNetwork === network) await this.restart(network)

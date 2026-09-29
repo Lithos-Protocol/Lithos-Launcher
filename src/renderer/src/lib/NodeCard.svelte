@@ -4,7 +4,7 @@
   import Ring from './Ring.svelte'
   import StatusDot from './StatusDot.svelte'
   import SyncPanel from './SyncPanel.svelte'
-  import { errorText, openNodePanel, startNode, stopNode, ui } from './store.svelte'
+  import { copyApiKey, errorText, openNodePanel, startNode, stopNode, ui } from './store.svelte'
 
   const STATUS_TEXT: Record<ProcStatus, string> = {
     stopped: 'Stopped',
@@ -37,6 +37,17 @@
         : (view.headers + view.blocks + view.indexed) / (3 * view.target)
       : null
   )
+
+  let keyCopied = $state(false)
+
+  async function copyKey(): Promise<void> {
+    const network = ui.node.network
+    if (!network) return
+    ui.nodeError = await copyApiKey(network, 'node')
+    if (ui.nodeError) return
+    keyCopied = true
+    setTimeout(() => (keyCopied = false), 1500)
+  }
 
   async function stopStray(): Promise<void> {
     ui.nodeError = null
@@ -81,6 +92,14 @@
   </div>
 
   <SyncPanel />
+
+  {#if status === 'running'}
+    <div class="key well" title="Copied without being shown. The clipboard clears itself after 30 seconds.">
+      <span class="micro">API key</span>
+      <span class="dots mono" aria-hidden="true">••••••••••••</span>
+      <button class="btn small" onclick={copyKey}>{keyCopied ? 'Copied' : 'Copy'}</button>
+    </div>
+  {/if}
 
   <div class="actions">
     {#if active}
@@ -132,6 +151,21 @@
 
   .stray {
     margin-top: 8px;
+  }
+
+  .key {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    margin: 12px 20px 0;
+    padding: 7px 8px 7px 14px;
+  }
+
+  .dots {
+    color: var(--sky-light);
+    font-size: 12.5px;
+    letter-spacing: 0.1em;
   }
 
   .actions {

@@ -1,5 +1,6 @@
 import { syncView } from '@shared/sync'
 import type {
+  ApiKeyName,
   ClientSettings,
   ClientSettingsPatch,
   ClientStats,
@@ -209,6 +210,16 @@ export async function unlockWallet(password: string, remember: boolean): Promise
 
 export function copyText(text: string): Promise<void> {
   return api.copyText(text)
+}
+
+/** Copies an API key in the main process, so it never reaches this window. Returns an error message, or null. */
+export async function copyApiKey(network: Network, name: ApiKeyName): Promise<string | null> {
+  try {
+    await api.copyApiKey(network, name)
+    return null
+  } catch (err) {
+    return errorText(err)
+  }
 }
 
 export async function startClient(): Promise<void> {

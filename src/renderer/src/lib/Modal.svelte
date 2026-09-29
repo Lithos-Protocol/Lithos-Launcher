@@ -35,7 +35,7 @@
     style:width="min({width}px, 100%)"
     use:focusFirst
   >
-    {@render children()}
+    <div class="scroll">{@render children()}</div>
   </div>
 </div>
 
@@ -51,15 +51,27 @@
     backdrop-filter: blur(6px);
   }
 
+  /* The frame clips and the inner area scrolls, so the scrollbar stays inside the rounded border. */
   .dialog {
     position: relative;
+    display: flex;
+    flex-direction: column;
     max-height: 100%;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: hidden;
     border: 1px solid var(--border-strong);
     border-radius: 22px;
     background: var(--surface);
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  }
+
+  .scroll {
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .scroll::-webkit-scrollbar-track {
+    margin: 18px 0;
   }
 
   .dialog :global(.content) {

@@ -4,8 +4,10 @@ import { totalmem } from 'node:os'
 import { join, resolve } from 'node:path'
 import { app, clipboard, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import {
+  API_KEY_RE,
   IPC,
   isNetwork,
+  MIN_API_KEY_LENGTH,
   type ApiKeyName,
   type AppInfo,
   type ClientSettingsPatch,
@@ -258,8 +260,7 @@ export function registerIpc(ctx: IpcContext): void {
       files: {
         node: await configFile(configPath(network, 'node'), MANAGED_NODE_KEYS),
         client: await configFile(configPath(network, 'client'), MANAGED_CLIENT_KEYS)
-      },
-      keys: { node: ctx.vault.getNodeKey(network) !== null, lithos: ctx.vault.getLithosKey(network) !== null }
+      }
     }
   })
   handle(IPC.openConfig, async (n, name, reveal) => {
@@ -293,16 +294,20 @@ export function registerIpc(ctx: IpcContext): void {
     }
     await copySecret(stored.key)
   })
-  handle(IPC.rotateApiKey, async (n, name) => {
+  handle(IPC.replaceApiKey, async (n, name, key) => {
     const network = asNetwork(n)
-    if (asApiKeyName(name) === 'lithos') return ctx.client.rotateKey(network)
+    const chosen = key === null ? null : asString(key, 256)
+    if (chosen !== null && !API_KEY_RE.test(chosen)) {
+      throw new Error(`Use at least ${MIN_API_KEY_LENGTH} characters: letters, digits and symbols, no spaces`)
+    }
+    if (asApiKeyName(name) === 'lithos') return ctx.client.replaceKey(network, chosen)
     if (ctx.node.runningNetwork !== network || ctx.node.proc.state.status !== 'running') {
       throw new Error(`Start the ${network} node first`)
     }
     // The client talks to the node with the old key, so it stops first. With "Start when ready"
     // on, the dashboard starts it again once the node is back up.
     await ctx.client.stop()
-    await ctx.node.rotateKey(network)
+    await ctx.node.replaceKey(network, chosen)
   })
   handle(IPC.inspectImport, (n, nodeFolder, clientFolder) =>
     ctx.importer.inspect(

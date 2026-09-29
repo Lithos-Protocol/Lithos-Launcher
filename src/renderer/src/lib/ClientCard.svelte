@@ -4,6 +4,7 @@
   import StatusDot from './StatusDot.svelte'
   import {
     clientRequirements,
+    copyApiKey,
     copyText,
     openLithosPanel,
     setAutoStartClient,
@@ -21,6 +22,7 @@
   }
 
   let copied = $state<string | null>(null)
+  let keyCopied = $state(false)
 
   const status = $derived(ui.client.status)
   const active = $derived(status === 'starting' || status === 'running' || status === 'stopping')
@@ -81,6 +83,15 @@
     await copyText(text)
     copied = text
     setTimeout(() => (copied = null), 1500)
+  }
+
+  async function copyKey(): Promise<void> {
+    const network = ui.client.network
+    if (!network) return
+    ui.clientError = await copyApiKey(network, 'lithos')
+    if (ui.clientError) return
+    keyCopied = true
+    setTimeout(() => (keyCopied = false), 1500)
   }
 </script>
 
@@ -192,6 +203,14 @@
           <button class="btn small" onclick={() => copy(lanPanelUrl!)}>{copied === lanPanelUrl ? 'Copied' : 'Copy'}</button>
         </div>
       {/if}
+      <div class="endpoint well" title="Copied without being shown. The clipboard clears itself after 30 seconds.">
+        <span class="micro">API key</span>
+        <span class="secret">
+          <span class="dots mono" aria-hidden="true">••••••••••••</span>
+          <span class="for">for the panel's DEX and collateral market</span>
+        </span>
+        <button class="btn small" onclick={copyKey}>{keyCopied ? 'Copied' : 'Copy'}</button>
+      </div>
     {:else if !active}
       <ul class="reqs" aria-label="Requirements">
         {#each requirements as r (r.label)}
@@ -440,6 +459,28 @@
 
   code.lan {
     color: var(--purple-light);
+  }
+
+  .secret {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .dots {
+    color: var(--purple-light);
+    font-size: 12.5px;
+    letter-spacing: 0.1em;
+  }
+
+  .for {
+    overflow: hidden;
+    color: var(--faint);
+    font-size: 11.5px;
+    text-overflow: ellipsis;
   }
 
   .warnings {

@@ -155,212 +155,214 @@
 
 <div class="overlay">
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
-    {#if step === 'password'}
-      <form class="content" onsubmit={create} use:focusFirst>
-        <div class="top">
-          <span class="micro">Create wallet · Step 1 of 3</span>
-          <button type="button" class="x" aria-label="Close" onclick={close} disabled={busy}>✕</button>
-        </div>
-        <h2 id="wizard-title">Choose a wallet password</h2>
-        <p class="note">This password encrypts the wallet file on this computer. {passwordNote}</p>
-        <div class="field">
-          <label class="micro" for="new-password">Password</label>
-          <input
-            id="new-password"
-            class="input"
-            type={showPassword ? 'text' : 'password'}
-            autocomplete="new-password"
-            bind:value={password}
-          />
-        </div>
-        <div class="field">
-          <label class="micro" for="confirm-password">Repeat password</label>
-          <input
-            id="confirm-password"
-            class="input"
-            type={showPassword ? 'text' : 'password'}
-            autocomplete="new-password"
-            bind:value={confirmPassword}
-          />
-        </div>
-        <label class="check"><input type="checkbox" bind:checked={showPassword} /> Show password</label>
-        {#if confirmPassword && passwordProblem}
-          <p class="hint">{passwordProblem}</p>
-        {/if}
-        {#if error}<p class="error-text" role="alert">{error}</p>{/if}
-        <button class="btn primary" type="submit" disabled={busy || passwordProblem !== null}>
-          {busy ? 'Creating wallet…' : 'Create wallet'}
-        </button>
-      </form>
-    {:else if step === 'seed'}
-      <div class="content" use:focusFirst>
-        <div class="top"><span class="micro">Create wallet · Step 2 of 3</span></div>
-        <h2 id="wizard-title">Write down your seed phrase</h2>
-        <ul class="warnings warn-note">
-          <li>Write these {words.length} words on paper, in order.</li>
-          <li>Anyone who has them can take the funds in this wallet. Never type them into a website.</li>
-          <li>The launcher does not save them and cannot show them again.</li>
-        </ul>
-        <ol class="words" aria-label="Seed phrase">
-          {#each words as word, i (i)}
-            <li><span class="n mono">{i + 1}</span><span class="w mono">{word}</span></li>
-          {/each}
-        </ol>
-        <label class="check"><input type="checkbox" bind:checked={wroteDown} /> I wrote down all {words.length} words</label>
-        <button class="btn primary" onclick={pickChecks} disabled={!wroteDown}>Continue</button>
-      </div>
-    {:else if step === 'confirm'}
-      <form class="content" onsubmit={verify} use:focusFirst>
-        <div class="top"><span class="micro">Create wallet · Step 3 of 3</span></div>
-        <h2 id="wizard-title">Check your paper copy</h2>
-        <p class="note">Type these words from what you wrote down.</p>
-        <div class="checks">
-          {#each checks as check (check.index)}
-            <div class="field">
-              <label class="micro" for="check-{check.index}">Word #{check.index + 1}</label>
-              <input
-                id="check-{check.index}"
-                class="input mono"
-                autocomplete="off"
-                autocapitalize="off"
-                spellcheck="false"
-                bind:value={check.value}
-              />
-            </div>
-          {/each}
-        </div>
-        {#if error}<p class="error-text" role="alert">{error}</p>{/if}
-        <div class="row">
-          <button
-            type="button"
-            class="btn"
-            onclick={() => {
-              error = null
-              wroteDown = false
-              step = 'seed'
-            }}>Show words again</button
-          >
-          <button class="btn primary" type="submit" disabled={checks.some((c) => !c.value.trim())}>Confirm</button>
-        </div>
-      </form>
-    {:else if step === 'restore'}
-      <form class="content" onsubmit={restore} use:focusFirst>
-        <div class="top">
-          <span class="micro">Restore wallet</span>
-          <button type="button" class="x" aria-label="Close" onclick={close} disabled={busy}>✕</button>
-        </div>
-        <h2 id="wizard-title">Restore from a seed phrase</h2>
-        <p class="warn-note">
-          Only restore a seed made for mining. The Lithos Client uses this wallet's keys, so don't use your main
-          savings wallet.
-        </p>
-        <div class="field">
-          <label class="micro" for="mnemonic">Seed phrase ({restoreWords} words)</label>
-          <textarea
-            id="mnemonic"
-            class="input mono"
-            rows="4"
-            autocomplete="off"
-            autocapitalize="off"
-            spellcheck="false"
-            bind:value={mnemonic}
-          ></textarea>
-        </div>
-        <div class="field">
-          <label class="micro" for="restore-password">New wallet password</label>
-          <input
-            id="restore-password"
-            class="input"
-            type={showPassword ? 'text' : 'password'}
-            autocomplete="new-password"
-            bind:value={password}
-          />
-        </div>
-        <div class="field">
-          <label class="micro" for="restore-confirm">Repeat password</label>
-          <input
-            id="restore-confirm"
-            class="input"
-            type={showPassword ? 'text' : 'password'}
-            autocomplete="new-password"
-            bind:value={confirmPassword}
-          />
-        </div>
-        <label class="check"><input type="checkbox" bind:checked={showPassword} /> Show password</label>
-        {#if mnemonic.trim() && !restoreCountOk}
-          <p class="hint">A seed phrase has {MNEMONIC_LENGTHS.join(', ')} words.</p>
-        {:else if confirmPassword && passwordProblem}
-          <p class="hint">{passwordProblem}</p>
-        {/if}
-        {#if error}<p class="error-text" role="alert">{error}</p>{/if}
-        <button class="btn primary" type="submit" disabled={busy || passwordProblem !== null || !restoreCountOk}>
-          {busy ? 'Restoring…' : 'Restore wallet'}
-        </button>
-      </form>
-    {:else if step === 'keystore'}
-      <form class="content" onsubmit={useKeystore} use:focusFirst>
-        <div class="top">
-          <span class="micro">Use a keystore file</span>
-          <button type="button" class="x" aria-label="Close" onclick={close} disabled={busy}>✕</button>
-        </div>
-        <h2 id="wizard-title">Use an existing keystore</h2>
-        <p class="note">
-          A keystore is the encrypted wallet file an Ergo node keeps in <span class="mono">.ergo/wallet/keystore</span>.
-          The launcher copies it into this node's wallet folder and leaves your file as it is.
-        </p>
-        <p class="warn-note">
-          Only use a wallet made for mining. The Lithos Client signs with this wallet's keys, so don't use your main
-          savings wallet.
-        </p>
-        <div class="pick well">
-          <div class="pick-body">
-            <span class="micro">Keystore file</span>
-            {#if keystore}
-              <span class="pick-name mono">{keystore.name}</span>
-              <span class="pick-folder mono">{keystore.folder}</span>
-            {:else}
-              <span class="pick-folder">No file chosen</span>
-            {/if}
+    <div class="scroll">
+      {#if step === 'password'}
+        <form class="content" onsubmit={create} use:focusFirst>
+          <div class="top">
+            <span class="micro">Create wallet · Step 1 of 3</span>
+            <button type="button" class="x" aria-label="Close" onclick={close} disabled={busy}>✕</button>
           </div>
-          <button type="button" class="btn small" onclick={chooseKeystore} disabled={busy}>
-            {keystore ? 'Change…' : 'Choose file…'}
+          <h2 id="wizard-title">Choose a wallet password</h2>
+          <p class="note">This password encrypts the wallet file on this computer. {passwordNote}</p>
+          <div class="field">
+            <label class="micro" for="new-password">Password</label>
+            <input
+              id="new-password"
+              class="input"
+              type={showPassword ? 'text' : 'password'}
+              autocomplete="new-password"
+              bind:value={password}
+            />
+          </div>
+          <div class="field">
+            <label class="micro" for="confirm-password">Repeat password</label>
+            <input
+              id="confirm-password"
+              class="input"
+              type={showPassword ? 'text' : 'password'}
+              autocomplete="new-password"
+              bind:value={confirmPassword}
+            />
+          </div>
+          <label class="check"><input type="checkbox" bind:checked={showPassword} /> Show password</label>
+          {#if confirmPassword && passwordProblem}
+            <p class="hint">{passwordProblem}</p>
+          {/if}
+          {#if error}<p class="error-text" role="alert">{error}</p>{/if}
+          <button class="btn primary" type="submit" disabled={busy || passwordProblem !== null}>
+            {busy ? 'Creating wallet…' : 'Create wallet'}
           </button>
+        </form>
+      {:else if step === 'seed'}
+        <div class="content" use:focusFirst>
+          <div class="top"><span class="micro">Create wallet · Step 2 of 3</span></div>
+          <h2 id="wizard-title">Write down your seed phrase</h2>
+          <ul class="warnings warn-note">
+            <li>Write these {words.length} words on paper, in order.</li>
+            <li>Anyone who has them can take the funds in this wallet. Never type them into a website.</li>
+            <li>The launcher does not save them and cannot show them again.</li>
+          </ul>
+          <ol class="words" aria-label="Seed phrase">
+            {#each words as word, i (i)}
+              <li><span class="n mono">{i + 1}</span><span class="w mono">{word}</span></li>
+            {/each}
+          </ol>
+          <label class="check"><input type="checkbox" bind:checked={wroteDown} /> I wrote down all {words.length} words</label>
+          <button class="btn primary" onclick={pickChecks} disabled={!wroteDown}>Continue</button>
         </div>
-        <div class="field">
-          <label class="micro" for="keystore-password">Keystore password</label>
-          <input
-            id="keystore-password"
-            class="input"
-            type={showPassword ? 'text' : 'password'}
-            autocomplete="current-password"
-            disabled={busy}
-            bind:value={password}
-          />
+      {:else if step === 'confirm'}
+        <form class="content" onsubmit={verify} use:focusFirst>
+          <div class="top"><span class="micro">Create wallet · Step 3 of 3</span></div>
+          <h2 id="wizard-title">Check your paper copy</h2>
+          <p class="note">Type these words from what you wrote down.</p>
+          <div class="checks">
+            {#each checks as check (check.index)}
+              <div class="field">
+                <label class="micro" for="check-{check.index}">Word #{check.index + 1}</label>
+                <input
+                  id="check-{check.index}"
+                  class="input mono"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  bind:value={check.value}
+                />
+              </div>
+            {/each}
+          </div>
+          {#if error}<p class="error-text" role="alert">{error}</p>{/if}
+          <div class="row">
+            <button
+              type="button"
+              class="btn"
+              onclick={() => {
+                error = null
+                wroteDown = false
+                step = 'seed'
+              }}>Show words again</button
+            >
+            <button class="btn primary" type="submit" disabled={checks.some((c) => !c.value.trim())}>Confirm</button>
+          </div>
+        </form>
+      {:else if step === 'restore'}
+        <form class="content" onsubmit={restore} use:focusFirst>
+          <div class="top">
+            <span class="micro">Restore wallet</span>
+            <button type="button" class="x" aria-label="Close" onclick={close} disabled={busy}>✕</button>
+          </div>
+          <h2 id="wizard-title">Restore from a seed phrase</h2>
+          <p class="warn-note">
+            Only restore a seed made for mining. The Lithos Client uses this wallet's keys, so don't use your main
+            savings wallet.
+          </p>
+          <div class="field">
+            <label class="micro" for="mnemonic">Seed phrase ({restoreWords} words)</label>
+            <textarea
+              id="mnemonic"
+              class="input mono"
+              rows="4"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              bind:value={mnemonic}
+            ></textarea>
+          </div>
+          <div class="field">
+            <label class="micro" for="restore-password">New wallet password</label>
+            <input
+              id="restore-password"
+              class="input"
+              type={showPassword ? 'text' : 'password'}
+              autocomplete="new-password"
+              bind:value={password}
+            />
+          </div>
+          <div class="field">
+            <label class="micro" for="restore-confirm">Repeat password</label>
+            <input
+              id="restore-confirm"
+              class="input"
+              type={showPassword ? 'text' : 'password'}
+              autocomplete="new-password"
+              bind:value={confirmPassword}
+            />
+          </div>
+          <label class="check"><input type="checkbox" bind:checked={showPassword} /> Show password</label>
+          {#if mnemonic.trim() && !restoreCountOk}
+            <p class="hint">A seed phrase has {MNEMONIC_LENGTHS.join(', ')} words.</p>
+          {:else if confirmPassword && passwordProblem}
+            <p class="hint">{passwordProblem}</p>
+          {/if}
+          {#if error}<p class="error-text" role="alert">{error}</p>{/if}
+          <button class="btn primary" type="submit" disabled={busy || passwordProblem !== null || !restoreCountOk}>
+            {busy ? 'Restoring…' : 'Restore wallet'}
+          </button>
+        </form>
+      {:else if step === 'keystore'}
+        <form class="content" onsubmit={useKeystore} use:focusFirst>
+          <div class="top">
+            <span class="micro">Use a keystore file</span>
+            <button type="button" class="x" aria-label="Close" onclick={close} disabled={busy}>✕</button>
+          </div>
+          <h2 id="wizard-title">Use an existing keystore</h2>
+          <p class="note">
+            A keystore is the encrypted wallet file an Ergo node keeps in <span class="mono">.ergo/wallet/keystore</span>.
+            The launcher copies it into this node's wallet folder and leaves your file as it is.
+          </p>
+          <p class="warn-note">
+            Only use a wallet made for mining. The Lithos Client signs with this wallet's keys, so don't use your main
+            savings wallet.
+          </p>
+          <div class="pick well">
+            <div class="pick-body">
+              <span class="micro">Keystore file</span>
+              {#if keystore}
+                <span class="pick-name mono">{keystore.name}</span>
+                <span class="pick-folder mono">{keystore.folder}</span>
+              {:else}
+                <span class="pick-folder">No file chosen</span>
+              {/if}
+            </div>
+            <button type="button" class="btn small" onclick={chooseKeystore} disabled={busy}>
+              {keystore ? 'Change…' : 'Choose file…'}
+            </button>
+          </div>
+          <div class="field">
+            <label class="micro" for="keystore-password">Keystore password</label>
+            <input
+              id="keystore-password"
+              class="input"
+              type={showPassword ? 'text' : 'password'}
+              autocomplete="current-password"
+              disabled={busy}
+              bind:value={password}
+            />
+          </div>
+          <label class="check"><input type="checkbox" bind:checked={showPassword} /> Show password</label>
+          <p class="info-note">
+            The node restarts once to load the keystore, then checks this password itself. If it doesn't unlock, the copy
+            is taken out again. Afterwards the wallet scans the chain for its history, which can take a while.
+          </p>
+          {#if error}<p class="error-text" role="alert">{error}</p>{/if}
+          <button class="btn primary" type="submit" disabled={busy || !keystore || !password}>
+            {busy ? 'Restarting the node to load it…' : 'Use this keystore'}
+          </button>
+        </form>
+      {:else}
+        <div class="content done" use:focusFirst>
+          <div class="big-tick" aria-hidden="true">✓</div>
+          <h2 id="wizard-title">Wallet ready</h2>
+          <p class="note">
+            {mode === 'restore'
+              ? 'Your wallet is restored and unlocked. Balances appear as the node syncs.'
+              : mode === 'keystore'
+                ? 'Your keystore is loaded and unlocked. The wallet is scanning the chain for its history, so the balance fills in as it goes.'
+                : 'Your wallet is created and unlocked. Keep your paper copy somewhere safe and offline.'}
+          </p>
+          <button class="btn primary" onclick={close}>Finish</button>
         </div>
-        <label class="check"><input type="checkbox" bind:checked={showPassword} /> Show password</label>
-        <p class="info-note">
-          The node restarts once to load the keystore, then checks this password itself. If it doesn't unlock, the copy
-          is taken out again. Afterwards the wallet scans the chain for its history, which can take a while.
-        </p>
-        {#if error}<p class="error-text" role="alert">{error}</p>{/if}
-        <button class="btn primary" type="submit" disabled={busy || !keystore || !password}>
-          {busy ? 'Restarting the node to load it…' : 'Use this keystore'}
-        </button>
-      </form>
-    {:else}
-      <div class="content done" use:focusFirst>
-        <div class="big-tick" aria-hidden="true">✓</div>
-        <h2 id="wizard-title">Wallet ready</h2>
-        <p class="note">
-          {mode === 'restore'
-            ? 'Your wallet is restored and unlocked. Balances appear as the node syncs.'
-            : mode === 'keystore'
-              ? 'Your keystore is loaded and unlocked. The wallet is scanning the chain for its history, so the balance fills in as it goes.'
-              : 'Your wallet is created and unlocked. Keep your paper copy somewhere safe and offline.'}
-        </p>
-        <button class="btn primary" onclick={close}>Finish</button>
-      </div>
-    {/if}
+      {/if}
+    </div>
   </div>
 </div>
 
@@ -378,14 +380,26 @@
   }
 
   .dialog {
+    display: flex;
+    flex-direction: column;
     width: min(580px, 100%);
     max-height: 100%;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: hidden;
     border: 1px solid var(--border-strong);
     border-radius: 22px;
     background: var(--surface);
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  }
+
+  /* The frame clips and this scrolls, so the scrollbar stays inside the rounded border. */
+  .scroll {
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .scroll::-webkit-scrollbar-track {
+    margin: 18px 0;
   }
 
   .content {

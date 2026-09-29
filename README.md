@@ -31,8 +31,9 @@ what to do next.
 - No secret is written to a config file. `ergo.conf` holds only the API key's hash (computed by the node itself), and
   `lithos.conf` reads the key and password from environment variables set when the client starts.
 - The seed phrase is never stored. It is shown once, when the wallet is created.
-- Settings can copy the node and Lithos API keys for the panels without showing them: the copy is kept out of
-  Windows clipboard history and cleared after 30 seconds. Either key can be replaced with a new one at any time.
+- The node and client cards copy their API keys for the panels without showing them: the copy is kept out of Windows
+  clipboard history and cleared after 30 seconds. In Settings, either key can be replaced with a new random one or
+  with one you choose; both are stored only encrypted, like every other secret.
 - The node's API listens on `127.0.0.1` only. So does the Lithos panel, unless you open it to your network in Settings
   to check on mining from a phone; it then accepts only this computer's own addresses as host names. Stratum listens on
   your network so other rigs can connect.

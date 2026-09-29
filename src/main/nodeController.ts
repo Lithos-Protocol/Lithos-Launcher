@@ -118,13 +118,14 @@ export class NodeController extends EventEmitter {
   }
 
   /**
-   * Replaces the node's API key with a fresh one: the running node hashes it, and restarts once so
-   * only the new key works. Anything holding the old key (the Lithos Client) must be stopped first.
+   * Replaces the node's API key with `chosen`, or a fresh random one: the running node hashes it, and
+   * restarts once so only the new key works. Anything holding the old key (the Lithos Client) must
+   * be stopped first.
    */
-  async rotateKey(network: Network): Promise<void> {
+  async replaceKey(network: Network, chosen: string | null): Promise<void> {
     const conn = this.connection()
     if (!conn || conn.network !== network) throw new Error(`Start the ${network} node first`)
-    const key = randomBytes(32).toString('base64url')
+    const key = chosen ?? randomBytes(32).toString('base64url')
     const hash = await conn.api.blake2b(key)
     await this.vault.setNodeKey(network, { key, hash })
     this.proc.log('Replacing the API key. The node restarts once.')
