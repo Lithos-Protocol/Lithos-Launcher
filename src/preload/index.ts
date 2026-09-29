@@ -19,6 +19,7 @@ const api: LauncherApi = {
   getNodeInfo: () => ipcRenderer.invoke(IPC.getNodeInfo),
   openNodePanel: () => ipcRenderer.invoke(IPC.openNodePanel),
   openFolder: (network) => ipcRenderer.invoke(IPC.openFolder, network),
+  stopStrayNode: (network) => ipcRenderer.invoke(IPC.stopStrayNode, network),
   startClient: (network) => ipcRenderer.invoke(IPC.startClient, network),
   stopClient: () => ipcRenderer.invoke(IPC.stopClient),
   restartClient: (network) => ipcRenderer.invoke(IPC.restartClient, network),

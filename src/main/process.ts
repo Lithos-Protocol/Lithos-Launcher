@@ -4,7 +4,8 @@ import type { Readable } from 'node:stream'
 import { StringDecoder } from 'node:string_decoder'
 import type { LogChunk, ProcId, ProcState } from '@shared/types'
 
-const LOG_CAPACITY = 5000
+// Full logs are on disk (the node's ergo.log, the client's logs/application.log); this is the view.
+const LOG_CAPACITY = 3000
 const MAX_LINE = 4000
 const FLUSH_MS = 100
 

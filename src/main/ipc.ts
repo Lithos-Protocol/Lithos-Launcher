@@ -33,6 +33,8 @@ interface IpcContext {
   client: ClientController
   importer: Importer
   skipSyncGate: boolean
+  /** Told when an unconfirmed seed phrase appears or goes, so closing can warn first. */
+  onSensitive: (on: boolean) => void
 }
 
 function asNetwork(value: unknown): Network {
@@ -155,6 +157,7 @@ export function registerIpc(ctx: IpcContext): void {
     if (error) throw new Error(error)
   })
 
+  handle(IPC.stopStrayNode, (n) => ctx.node.stopStray(asNetwork(n)))
   handle(IPC.startClient, (n) => ctx.client.start(asNetwork(n)))
   handle(IPC.stopClient, () => ctx.client.stop())
   handle(IPC.restartClient, (n) => ctx.client.restart(asNetwork(n)))
@@ -259,5 +262,9 @@ export function registerIpc(ctx: IpcContext): void {
 
   // The renderer has no clipboard permission; copying goes through here.
   handle(IPC.copyText, (text) => clipboard.writeText(asString(text, 2000)))
-  handle(IPC.setSensitive, (on) => ctx.window()?.setContentProtection(asBoolean(on)))
+  handle(IPC.setSensitive, (on) => {
+    const value = asBoolean(on)
+    ctx.onSensitive(value)
+    ctx.window()?.setContentProtection(value)
+  })
 }

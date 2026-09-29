@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { Network, NodeInfo } from '@shared/types'
 import { detectErgo } from './ergo'
+import { diagnose } from './diagnose'
 import { HELLO_HASH, HELLO_KEY, writeNodeConf } from './ergoConf'
 import { interrupt } from './interrupt'
 import { detectJre } from './java'
@@ -66,7 +67,7 @@ export class NodeController extends EventEmitter {
     }
     const gen = ++this.generation
     this.network = network
-    this.proc.setState({ network, status: 'starting', detail: 'Checking install', exitCode: null })
+    this.proc.setState({ network, status: 'starting', detail: 'Checking install', exitCode: null, stray: false })
 
     try {
       if (!(await detectJre(this.root))) throw new Error('Java is not installed yet')
@@ -74,6 +75,11 @@ export class NodeController extends EventEmitter {
       if (!ergo) throw new Error('The Ergo node is not installed yet')
       const port = NODE_API_PORT[network]
       if (await isPortListening(port)) {
+        const known = this.vault.getNodeKey(network)
+        if (known && (await new NodeApi(port).accepts(known.key).catch(() => false))) {
+          this.proc.setState({ stray: true })
+          throw new Error('A node this launcher started earlier is still running in the background.')
+        }
         throw new Error(`Port ${port} is already in use. Another Ergo node may be running.`)
       }
       this.check(gen)
@@ -97,13 +103,31 @@ export class NodeController extends EventEmitter {
         }
         return
       }
-      const message = errorMessage(err)
+      let message = errorMessage(err)
+      if (message.startsWith('The node exited during startup')) {
+        message = diagnose('node', this.proc.snapshot().lines) ?? message
+      }
       this.proc.log(message)
       if (this.proc.alive) await this.shutdownProcess()
       const crashed = this.proc.state.status === 'crashed'
       this.proc.setState({ status: crashed ? 'crashed' : 'stopped', pid: null, detail: message })
       throw err
     }
+  }
+
+  /** Cleanly stops a node an earlier launcher session left running, using the stored API key. */
+  async stopStray(network: Network): Promise<void> {
+    const known = this.vault.getNodeKey(network)
+    if (!known) throw new Error('No API key is stored for that node')
+    const port = NODE_API_PORT[network]
+    this.proc.setState({ detail: 'Stopping the node left running earlier' })
+    await new NodeApi(port).shutdown(known.key)
+    const deadline = Date.now() + SHUTDOWN_TIMEOUT_MS
+    while (await isPortListening(port)) {
+      if (Date.now() > deadline) throw new Error('The old node did not stop in time')
+      await sleep(1000)
+    }
+    this.proc.setState({ stray: false, detail: 'The old node stopped. You can start the node now.' })
   }
 
   async stop(): Promise<void> {
@@ -215,7 +239,7 @@ export class NodeController extends EventEmitter {
       status: 'crashed',
       pid: null,
       exitCode: code,
-      detail: `The node exited unexpectedly (code ${code ?? 'unknown'})`
+      detail: diagnose('node', this.proc.snapshot().lines) ?? `The node exited unexpectedly (code ${code ?? 'unknown'})`
     })
   }
 

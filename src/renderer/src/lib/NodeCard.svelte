@@ -2,7 +2,7 @@
   import type { ProcStatus } from '@shared/types'
   import StatusDot from './StatusDot.svelte'
   import SyncPanel from './SyncPanel.svelte'
-  import { openNodePanel, startNode, stopNode, ui } from './store.svelte'
+  import { errorText, openNodePanel, startNode, stopNode, ui } from './store.svelte'
 
   const STATUS_TEXT: Record<ProcStatus, string> = {
     stopped: 'Stopped',
@@ -18,6 +18,15 @@
   const shownNetwork = $derived(active && ui.node.network ? ui.node.network : ui.network)
   const otherNetwork = $derived(active && ui.node.network !== null && ui.node.network !== ui.network)
   const installed = $derived(ui.net?.java.installed && ui.net?.node.installed)
+
+  async function stopStray(): Promise<void> {
+    ui.nodeError = null
+    try {
+      await window.lithos.stopStrayNode(ui.network)
+    } catch (err) {
+      ui.nodeError = errorText(err)
+    }
+  }
 </script>
 
 <section class="panel" aria-labelledby="node-title">
@@ -32,6 +41,9 @@
       <div class="status-text">{STATUS_TEXT[status]}</div>
       {#if ui.node.detail}
         <div class="detail">{ui.node.detail}</div>
+        {#if ui.node.stray}
+          <button class="btn small stray" onclick={stopStray}>Stop it</button>
+        {/if}
       {:else if otherNetwork}
         <div class="detail">Running on {ui.node.network}. Stop it to start {ui.network}.</div>
       {:else if status === 'stopped' && !installed}
@@ -106,6 +118,10 @@
   .detail {
     color: var(--muted);
     font-size: 12px;
+  }
+
+  .stray {
+    margin-top: 8px;
   }
 
   .peers {

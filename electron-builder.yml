@@ -1,0 +1,50 @@
+appId: work.lithos.launcher
+productName: Lithos Launcher
+copyright: Lithos Protocol · CC0-1.0
+
+directories:
+  buildResources: build
+  output: release/${version}
+
+# Everything is bundled into out/ by electron-vite, so no node_modules ship.
+files:
+  - out/**
+  - resources/**
+  - package.json
+  - '!**/*.map'
+asar: true
+
+# Hardening: the packaged app can't be repurposed as a Node runtime or debugged via env/flags,
+# and only runs the code in its own integrity-checked asar.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+
+win:
+  target: nsis
+  icon: build/icon.png
+  artifactName: Lithos-Launcher-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: Lithos Launcher
+  # The launcher's own data (vault, launcher.json) stays unless the user removes it; the
+  # node, client and chain live in ~/Lithos and are never touched by the uninstaller.
+  deleteAppDataOnUninstall: false
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Utility
+  icon: build/icon.png
+  artifactName: Lithos-Launcher-${version}.${ext}
+  maintainer: Lithos Protocol
+  synopsis: Installs and runs the Ergo node and Lithos Client

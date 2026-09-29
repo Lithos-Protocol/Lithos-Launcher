@@ -35,6 +35,8 @@ export interface ProcState {
   detail: string | null
   /** Ports the process listens on while running, e.g. { http: 9000, stratum: 4444 }. */
   ports: Record<string, number> | null
+  /** A node this launcher started in an earlier session is still running and holds the ports. */
+  stray?: boolean
 }
 
 export interface NodeInfo {
@@ -197,6 +199,8 @@ export interface LauncherApi {
   getNodeInfo(): Promise<NodeInfo | null>
   openNodePanel(): Promise<void>
   openFolder(network: Network): Promise<void>
+  /** Cleanly stops a node left running by an earlier launcher session. */
+  stopStrayNode(network: Network): Promise<void>
   startClient(network: Network): Promise<void>
   stopClient(): Promise<void>
   restartClient(network: Network): Promise<void>
@@ -247,6 +251,7 @@ export const IPC = {
   getNodeInfo: 'node:get-info',
   openNodePanel: 'node:open-panel',
   openFolder: 'launcher:open-folder',
+  stopStrayNode: 'node:stop-stray',
   startClient: 'client:start',
   stopClient: 'client:stop',
   openLithosPanel: 'client:open-panel',

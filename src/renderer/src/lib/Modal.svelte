@@ -12,9 +12,15 @@
     if (event.key === 'Escape' && onclose) onclose()
   }
 
-  /** Moves focus into the dialog for keyboard and screen reader users. */
+  /** Moves focus into the dialog: the first field, else the main action, else the first button. */
   function focusFirst(node: HTMLElement): void {
-    requestAnimationFrame(() => node.querySelector<HTMLElement>('input, textarea, button:not(.x)')?.focus())
+    requestAnimationFrame(() =>
+      (
+        node.querySelector<HTMLElement>('input, textarea') ??
+        node.querySelector<HTMLElement>('.btn.primary:not(:disabled)') ??
+        node.querySelector<HTMLElement>('button:not(.x)')
+      )?.focus()
+    )
   }
 </script>
 

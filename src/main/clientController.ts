@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { syncView } from '@shared/sync'
 import type { ClientStats, Network } from '@shared/types'
 import { CLIENT_ENV, readClientSettings, writeClientConf } from './clientConf'
+import { diagnose } from './diagnose'
 import { interrupt } from './interrupt'
 import { detectJre } from './java'
 import { heapPlan, javaEnv, layout } from './layout'
@@ -153,7 +154,10 @@ export class ClientController {
         }
         return
       }
-      const message = errorMessage(err)
+      let message = errorMessage(err)
+      if (message.startsWith('The Lithos Client exited during startup')) {
+        message = diagnose('client', this.proc.snapshot().lines) ?? message
+      }
       this.proc.log(message)
       if (this.proc.alive) await this.shutdownProcess()
       const crashed = this.proc.state.status === 'crashed'
@@ -281,7 +285,9 @@ export class ClientController {
       pid: null,
       exitCode: code,
       ports: null,
-      detail: `The Lithos Client exited unexpectedly (code ${code ?? 'unknown'}). See the Client log.`
+      detail:
+        diagnose('client', this.proc.snapshot().lines) ??
+        `The Lithos Client exited unexpectedly (code ${code ?? 'unknown'}). See the Client log.`
     })
   }
 }

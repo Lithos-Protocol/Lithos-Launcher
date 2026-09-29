@@ -65,7 +65,7 @@
         cursorBlink: false,
         cursorStyle: 'bar',
         cursorInactiveStyle: 'none',
-        scrollback: 5000,
+        scrollback: 3000,
         fontFamily: '"JetBrains Mono", ui-monospace, monospace',
         fontSize: 12,
         lineHeight: 1.3,
