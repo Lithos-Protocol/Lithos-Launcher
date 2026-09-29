@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { hostname } from 'node:os'
 import { syncView } from '@shared/sync'
 import type { ClientStats, Network } from '@shared/types'
 import { CLIENT_ENV, readClientSettings, writeClientConf } from './clientConf'
@@ -9,6 +10,7 @@ import { heapPlan, javaEnv, layout } from './layout'
 import { detectClient, findKeystore } from './lithosClient'
 import type { NodeController } from './nodeController'
 import { ManagedProcess } from './process'
+import { lanAddresses } from './system'
 import { errorMessage, isPortListening, sleep } from './util'
 import type { Vault } from './vault'
 import type { WalletManager } from './wallet'
@@ -103,12 +105,14 @@ export class ClientController {
         await this.vault.setPlaySecret(network, playSecret)
       }
 
+      const lan = lanAddresses()
       await writeClientConf(this.root, {
         network,
         appHome: client.home,
         keystore,
         lithosApiKeyHash: lithosKey.hash,
-        settings
+        settings,
+        lanHosts: [...lan, hostname()]
       })
       this.check(gen)
 
@@ -140,6 +144,9 @@ export class ClientController {
       const up = await this.waitForHttp(ports.http, gen)
       this.proc.setState({ status: 'running', detail: up ? null : 'Started, but the panel is not answering yet' })
       this.proc.log(`Lithos Client is running. Panel: http://127.0.0.1:${ports.http}  Stratum port: ${ports.stratum}`)
+      if (settings.lanPanel && lan.length) {
+        this.proc.log(`The panel is open to your network: ${lan.map((a) => `http://${a}:${ports.http}`).join('  ')}`)
+      }
       this.proc.log(
         settings.autoCommit
           ? `Difficulty ${settings.diff}, auto-commit on`

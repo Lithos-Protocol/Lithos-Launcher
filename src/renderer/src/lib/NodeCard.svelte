@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { syncView, type SyncStage } from '@shared/sync'
   import type { ProcStatus } from '@shared/types'
+  import Ring from './Ring.svelte'
   import StatusDot from './StatusDot.svelte'
   import SyncPanel from './SyncPanel.svelte'
   import { errorText, openNodePanel, startNode, stopNode, ui } from './store.svelte'
@@ -12,12 +14,29 @@
     crashed: 'Stopped unexpectedly'
   }
 
+  const RING_CAPTION: Record<SyncStage, string> = {
+    connecting: 'peers',
+    headers: 'syncing',
+    blocks: 'syncing',
+    indexing: 'indexing',
+    synced: 'synced'
+  }
+
   const status = $derived(ui.node.status)
   const active = $derived(status === 'starting' || status === 'running' || status === 'stopping')
   // While a node runs, this card follows it even if the switch shows the other network.
   const shownNetwork = $derived(active && ui.node.network ? ui.node.network : ui.network)
   const otherNetwork = $derived(active && ui.node.network !== null && ui.node.network !== ui.network)
   const installed = $derived(ui.net?.java.installed && ui.net?.node.installed)
+  const view = $derived(ui.info ? syncView(ui.info) : null)
+  // Headers, blocks and index weigh the same: the node is ready for Lithos when all three are done.
+  const overall = $derived(
+    view && view.stage !== 'connecting' && view.target > 0
+      ? view.stage === 'synced'
+        ? 1
+        : (view.headers + view.blocks + view.indexed) / (3 * view.target)
+      : null
+  )
 
   async function stopStray(): Promise<void> {
     ui.nodeError = null
@@ -31,12 +50,14 @@
 
 <section class="panel" aria-labelledby="node-title">
   <div class="panel-head">
-    <span class="micro" id="node-title">02 · Ergo node</span>
+    <h2 class="card-title" id="node-title">
+      <span class="swatch network" aria-hidden="true"></span>Ergo node<span class="no">02</span>
+    </h2>
     <span class="net micro {shownNetwork}">{shownNetwork}</span>
   </div>
 
   <div class="status">
-    <StatusDot {status} size={12} />
+    <StatusDot {status} size={10} />
     <div class="status-body">
       <div class="status-text">{STATUS_TEXT[status]}</div>
       {#if ui.node.detail}
@@ -48,13 +69,14 @@
         <div class="detail">Running on {ui.node.network}. Stop it to start {ui.network}.</div>
       {:else if status === 'stopped' && !installed}
         <div class="detail">Install the components above first.</div>
+      {:else if ui.info}
+        <div class="detail micro">
+          {ui.info.peersCount} peers{ui.info.appVersion ? ` · v${ui.info.appVersion}` : ''}
+        </div>
       {/if}
     </div>
-    {#if ui.info}
-      <div class="peers mono" title="Connected peers">
-        <span class="micro">Peers</span>
-        {ui.info.peersCount}
-      </div>
+    {#if view}
+      <Ring value={overall} caption={RING_CAPTION[view.stage]} done={view.stage === 'synced'} />
     {/if}
   </div>
 
@@ -77,30 +99,11 @@
 </section>
 
 <style>
-  .net {
-    padding: 2px 8px;
-    border: 1px solid;
-  }
-
-  .net.mainnet {
-    color: var(--sky);
-    border-color: rgba(56, 189, 248, 0.35);
-  }
-
-  .net.testnet {
-    color: var(--purple-light);
-    border-color: rgba(168, 85, 247, 0.4);
-  }
-
   .status {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 14px;
-    padding: 4px 20px 16px;
-  }
-
-  .status :global(.dot) {
-    margin-top: 7px;
+    padding: 0 20px 14px;
   }
 
   .status-body {
@@ -110,30 +113,25 @@
 
   .status-text {
     color: var(--text-head);
-    font-size: 18px;
+    font-family: var(--display);
+    font-size: 21px;
     font-weight: 700;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
   }
 
   .detail {
+    margin-top: 2px;
     color: var(--muted);
     font-size: 12px;
   }
 
+  .detail.micro {
+    color: var(--dim);
+  }
+
   .stray {
     margin-top: 8px;
-  }
-
-  .peers {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    color: var(--text-head);
-    font-size: 15px;
-  }
-
-  .peers .micro {
-    font-size: 9.5px;
   }
 
   .actions {

@@ -106,12 +106,13 @@
 
   .url {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: 150px minmax(0, 1fr) auto;
     align-items: center;
     gap: 12px;
-    padding: 8px 12px;
+    padding: 7px 8px 7px 14px;
     border: 1px solid var(--border);
-    background: var(--bg-deep);
+    border-radius: var(--radius);
+    background: var(--well);
   }
 
   .url code {
@@ -122,28 +123,33 @@
     white-space: nowrap;
   }
 
+  .miner {
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: rgba(15, 22, 41, 0.5);
+  }
+
   .miner .url {
     grid-template-columns: minmax(0, 1fr) auto;
-    margin-top: 8px;
+    margin-top: 10px;
   }
 
   .miner-head {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-  }
-
-  h3 {
-    margin: 0 0 6px;
-    color: var(--text-head);
-    font-size: 14px;
-    font-weight: 600;
+    margin-bottom: 6px;
   }
 
   .tag {
     margin-left: 6px;
-    color: var(--sky-light);
-    font-size: 9.5px;
+    padding: 1px 7px;
+    border: 1px solid rgba(110, 231, 183, 0.35);
+    border-radius: 999px;
+    color: var(--mint);
+    font-size: 9px;
+    vertical-align: 2px;
   }
 
   .link.inline {
@@ -151,24 +157,7 @@
     text-decoration: underline;
   }
 
-  .link {
-    border: none;
-    background: none;
-    padding: 0;
-    color: var(--sky);
-    cursor: pointer;
-  }
-
   .note code {
     color: var(--text-head);
-  }
-
-  .warn-note {
-    margin: 0;
-    padding: 10px 14px;
-    border-left: 2px solid var(--amber);
-    background: rgba(245, 158, 11, 0.07);
-    color: var(--text);
-    font-size: 12.5px;
   }
 </style>

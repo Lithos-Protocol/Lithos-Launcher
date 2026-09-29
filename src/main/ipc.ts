@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { networkInterfaces, totalmem } from 'node:os'
+import { totalmem } from 'node:os'
 import { resolve } from 'node:path'
 import { app, clipboard, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import {
@@ -10,16 +10,18 @@ import {
   type ImportOptions,
   type LauncherInfo,
   type Network,
+  type NodeSettingsPatch,
   type ProcId
 } from '@shared/types'
 import { readClientSettings, updateClientSettings } from './clientConf'
 import type { ClientController } from './clientController'
+import { readNodeSettings, updateNodeSettings } from './ergoConf'
 import type { Importer } from './importer'
 import type { Installer } from './installer'
 import { autoHeap, defaultRoot, heapPlan, layout, NODE_API_PORT } from './layout'
 import type { NodeController } from './nodeController'
 import { settings, updateSettings } from './settings'
-import { systemCheck } from './system'
+import { lanAddresses, systemCheck } from './system'
 import type { Vault } from './vault'
 import type { WalletManager } from './wallet'
 
@@ -66,6 +68,7 @@ function asSettingsPatch(value: unknown): ClientSettingsPatch {
     if (key === 'diff') patch.diff = asString(v.diff, 16)
     else if (key === 'autoCommit') patch.autoCommit = asBoolean(v.autoCommit)
     else if (key === 'forceConfigDiff') patch.forceConfigDiff = asBoolean(v.forceConfigDiff)
+    else if (key === 'lanPanel') patch.lanPanel = asBoolean(v.lanPanel)
     else if (key === 'httpPort' || key === 'stratumPort' || key === 'reductionMultiplier') {
       if (typeof v[key] !== 'number') throw new Error('Invalid argument')
       patch[key] = v[key] as number
@@ -75,18 +78,21 @@ function asSettingsPatch(value: unknown): ClientSettingsPatch {
   return patch
 }
 
+function asNodeSettingsPatch(value: unknown): NodeSettingsPatch {
+  if (typeof value !== 'object' || value === null) throw new Error('Invalid settings')
+  const v = value as Record<string, unknown>
+  const patch: NodeSettingsPatch = {}
+  for (const key of Object.keys(v)) {
+    if (key === 'offlineGeneration') patch.offlineGeneration = asBoolean(v.offlineGeneration)
+    else throw new Error(`Unknown setting: ${key}`)
+  }
+  return patch
+}
+
 // The only external pages the UI can open. The renderer names one; it never supplies a URL.
 const LINKS: Record<string, string> = {
   soat: 'https://github.com/blindrun/soat-miner',
   rigel: 'https://github.com/rigelminer/rigel/releases'
-}
-
-/** Non-internal IPv4 addresses, for pointing rigs on the LAN at the stratum port. */
-function lanAddresses(): string[] {
-  return Object.values(networkInterfaces())
-    .flat()
-    .filter((a) => a && a.family === 'IPv4' && !a.internal && !a.address.startsWith('169.254.'))
-    .map((a) => a!.address)
 }
 
 function launcherInfo(root: string): LauncherInfo {
@@ -164,6 +170,8 @@ export function registerIpc(ctx: IpcContext): void {
   handle(IPC.getClientSettings, (n) => readClientSettings(ctx.root, asNetwork(n)))
   handle(IPC.setClientSettings, (n, patch) => updateClientSettings(ctx.root, asNetwork(n), asSettingsPatch(patch)))
   handle(IPC.getClientStats, () => ctx.client.stats)
+  handle(IPC.getNodeSettings, (n) => readNodeSettings(ctx.root, asNetwork(n)))
+  handle(IPC.setNodeSettings, (n, patch) => updateNodeSettings(ctx.root, asNetwork(n), asNodeSettingsPatch(patch)))
   handle(IPC.getSystemCheck, (n) => systemCheck(ctx.root, asNetwork(n)))
   const nothingRunning = (): void => {
     if (ctx.node.proc.alive || ctx.client.proc.alive) throw new Error('Stop the node and client first')
@@ -259,6 +267,22 @@ export function registerIpc(ctx: IpcContext): void {
     ctx.wallet.restore(asString(mnemonic, 1000), asString(password, 256))
   )
   handle(IPC.unlockWallet, (password, remember) => ctx.wallet.unlock(asString(password, 256), asBoolean(remember)))
+  // The picked path stays in the main process; the renderer only ever sees its name.
+  handle(IPC.pickKeystore, async () => {
+    const win = ctx.window()
+    if (!win) return null
+    const picked = await dialog.showOpenDialog(win, {
+      title: 'Choose your Ergo node keystore file',
+      filters: [
+        { name: 'Ergo keystore', extensions: ['json'] },
+        { name: 'All files', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    })
+    const file = picked.canceled ? null : picked.filePaths[0]
+    return file ? ctx.wallet.pickKeystore(file) : null
+  })
+  handle(IPC.importKeystore, (password) => ctx.wallet.importKeystore(asString(password, 256)))
 
   // The renderer has no clipboard permission; copying goes through here.
   handle(IPC.copyText, (text) => clipboard.writeText(asString(text, 2000)))

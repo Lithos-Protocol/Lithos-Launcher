@@ -60,8 +60,27 @@ export interface WalletState {
   passwordKnown: boolean
   /** Confirmed balance in nanoERG while unlocked, else null. */
   balanceNanoErg: number | null
+  /** Last block the wallet has scanned; behind the chain while a new wallet catches up. */
+  walletHeight: number | null
   error: string | null
 }
+
+/** A keystore file picked for import. The main process keeps the path; the renderer only shows it. */
+export interface KeystorePick {
+  name: string
+  folder: string
+}
+
+/** Node settings the launcher manages in ergo.conf. */
+export interface NodeSettings {
+  /** ergo.node.offlineGeneration: hand out mining work right after a restart, without waiting for a block. */
+  offlineGeneration: boolean
+}
+
+export type NodeSettingsPatch = Partial<NodeSettings>
+
+/** The Ergo node's own defaults: its mainnet.conf turns offline generation on, testnet leaves it off. */
+export const DEFAULT_OFFLINE_GENERATION: Record<Network, boolean> = { mainnet: true, testnet: false }
 
 /** Mining settings the launcher manages in lithos.conf. */
 export interface ClientSettings {
@@ -75,6 +94,8 @@ export interface ClientSettings {
   stratumPort: number
   /** stratum.reductionMultiplier: miners are sent this × the diff, so they report fewer shares. */
   reductionMultiplier: number
+  /** Serve the panel on all interfaces so phones and other computers on the LAN can open it. */
+  lanPanel: boolean
 }
 
 export const REDUCTION_MULTIPLIERS = [10, 100, 1000, 10000] as const
@@ -85,7 +106,10 @@ export const REDUCTION_MULTIPLIERS = [10, 100, 1000, 10000] as const
 export const DEFAULT_REDUCTION_MULTIPLIER = 1000
 
 export type ClientSettingsPatch = Partial<
-  Pick<ClientSettings, 'diff' | 'autoCommit' | 'forceConfigDiff' | 'httpPort' | 'stratumPort' | 'reductionMultiplier'>
+  Pick<
+    ClientSettings,
+    'diff' | 'autoCommit' | 'forceConfigDiff' | 'httpPort' | 'stratumPort' | 'reductionMultiplier' | 'lanPanel'
+  >
 >
 
 /** Live figures from the running client's open stats endpoints. Scores are integer strings. */
@@ -209,6 +233,9 @@ export interface LauncherApi {
   /** Saves to lithos.conf. The running client picks changes up on its next start. */
   setClientSettings(network: Network, patch: ClientSettingsPatch): Promise<ClientSettings>
   getClientStats(): Promise<ClientStats | null>
+  getNodeSettings(network: Network): Promise<NodeSettings>
+  /** Saves to ergo.conf. The node picks changes up on its next start. */
+  setNodeSettings(network: Network, patch: NodeSettingsPatch): Promise<NodeSettings>
   getSystemCheck(network: Network): Promise<SystemCheck>
   openLink(name: LinkName): Promise<void>
   getLauncherInfo(): Promise<LauncherInfo>
@@ -227,6 +254,13 @@ export interface LauncherApi {
   /** Creates the node wallet and returns its seed words. They are shown once and never stored. */
   createWallet(password: string): Promise<string[]>
   restoreWallet(mnemonic: string, password: string): Promise<void>
+  /** Opens a file picker for an Ergo node keystore (.json). Resolves null if cancelled. */
+  pickKeystore(): Promise<KeystorePick | null>
+  /**
+   * Copies the picked keystore into the node's wallet folder and restarts the node to load it.
+   * The node checks the password; if it doesn't unlock, the copy is removed and the node restarted.
+   */
+  importKeystore(password: string): Promise<void>
   /** `remember` saves the password to the vault; it is always kept for the session. */
   unlockWallet(password: string, remember: boolean): Promise<void>
   copyText(text: string): Promise<void>
@@ -259,6 +293,8 @@ export const IPC = {
   getClientSettings: 'client:get-settings',
   setClientSettings: 'client:set-settings',
   getClientStats: 'client:get-stats',
+  getNodeSettings: 'node:get-settings',
+  setNodeSettings: 'node:set-settings',
   getSystemCheck: 'launcher:system-check',
   openLink: 'launcher:open-link',
   getLauncherInfo: 'launcher:get-info',
@@ -273,6 +309,8 @@ export const IPC = {
   getWallet: 'wallet:get',
   createWallet: 'wallet:create',
   restoreWallet: 'wallet:restore',
+  pickKeystore: 'wallet:pick-keystore',
+  importKeystore: 'wallet:import-keystore',
   unlockWallet: 'wallet:unlock',
   copyText: 'launcher:copy-text',
   setSensitive: 'launcher:set-sensitive',

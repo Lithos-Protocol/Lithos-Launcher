@@ -28,7 +28,7 @@
 
 <div class="overlay">
   <div
-    class="dialog panel"
+    class="dialog"
     role="dialog"
     aria-modal="true"
     aria-labelledby={labelledby}
@@ -47,14 +47,18 @@
     display: grid;
     place-items: center;
     padding: 24px;
-    background: rgba(6, 9, 19, 0.82);
+    background: rgba(4, 6, 13, 0.8);
     backdrop-filter: blur(6px);
   }
 
   .dialog {
+    position: relative;
     max-height: 100%;
     overflow-x: hidden;
     overflow-y: auto;
+    border: 1px solid var(--border-strong);
+    border-radius: 22px;
+    background: var(--surface);
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
   }
 
@@ -73,23 +77,40 @@
   }
 
   .dialog :global(.x) {
-    border: none;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid transparent;
+    border-radius: 50%;
     background: none;
     color: var(--dim);
-    font-size: 14px;
+    font-size: 13px;
     cursor: pointer;
   }
 
-  .dialog :global(.x:hover) {
+  .dialog :global(.x:hover:not(:disabled)) {
+    border-color: var(--border-strong);
     color: var(--text-head);
   }
 
   .dialog :global(h2) {
     margin: 0;
     color: var(--text-head);
-    font-size: 20px;
+    font-family: var(--display);
+    font-size: 23px;
     font-weight: 700;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+  }
+
+  .dialog :global(h3) {
+    margin: 0;
+    color: var(--text-head);
+    font-family: var(--display);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
   }
 
   .dialog :global(.footer) {
@@ -97,5 +118,30 @@
     justify-content: flex-end;
     gap: 12px;
     padding-top: 4px;
+  }
+
+  /* Label/value rows in a recessed box, shared by several dialogs. */
+  .dialog :global(.facts) {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin: 0;
+    padding: 13px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--well);
+    list-style: none;
+    font-size: 12.5px;
+  }
+
+  .dialog :global(.facts li) {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .dialog :global(.facts b) {
+    color: var(--text-head);
+    font-weight: 600;
   }
 </style>

@@ -1,11 +1,16 @@
 import { EventEmitter } from 'node:events'
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import {
   MIN_PASSWORD_LENGTH,
   MNEMONIC_LENGTHS,
+  type KeystorePick,
   type Network,
   type ProcState,
   type WalletState
 } from '@shared/types'
+import { keystoreFileName, readKeystore } from './keystore'
+import { layout } from './layout'
 import type { NodeConnection, NodeController } from './nodeController'
 import { errorMessage } from './util'
 import type { Vault } from './vault'
@@ -18,6 +23,7 @@ const UNAVAILABLE: WalletState = {
   address: null,
   passwordKnown: false,
   balanceNanoErg: null,
+  walletHeight: null,
   error: null
 }
 
@@ -46,8 +52,13 @@ export class WalletManager extends EventEmitter {
   private unlocking = false
   /** One automatic re-unlock per lock; reset once the wallet is unlocked again. */
   private relockTried = false
+  /** Keystore file the user picked, checked but not yet imported. Kept here so the renderer never names a path. */
+  private pickedKeystore: string | null = null
+  /** The node is restarting to load an imported keystore; the import does its own unlocking. */
+  private importing: Network | null = null
 
   constructor(
+    private readonly root: string,
     private readonly node: NodeController,
     private readonly vault: Vault
   ) {
@@ -87,6 +98,72 @@ export class WalletManager extends EventEmitter {
     await this.ensureUnlocked(conn, password)
   }
 
+  /** Remembers a keystore file the user picked, once it looks like one. */
+  async pickKeystore(path: string): Promise<KeystorePick> {
+    await readKeystore(path)
+    this.pickedKeystore = path
+    return { name: basename(path), folder: dirname(path) }
+  }
+
+  /**
+   * Uses an existing node keystore as this node's wallet. The node reads its keystore folder only
+   * at startup, so the file is copied in and the node restarted; the node then checks the password
+   * by unlocking. If that fails, the copy is removed and the node restarted without it.
+   */
+  async importKeystore(password: string): Promise<void> {
+    if (!password) throw new Error('Enter the password this keystore was created with')
+    const source = this.pickedKeystore
+    if (!source) throw new Error('Choose a keystore file first')
+    const conn = this.connection()
+    const network = conn.network
+    if ((await conn.api.walletStatus(conn.apiKey)).isInitialized) throw new Error('This node already has a wallet')
+    const dir = layout.keystoreDir(this.root, network)
+    // The node loads the first file it finds there, so the folder has to start out empty.
+    if ((await readdir(dir).catch(() => [])).length) throw new Error(`The node's keystore folder isn't empty: ${dir}`)
+
+    // Read and check it again, and write exactly what was checked.
+    const text = await readKeystore(source)
+    const target = join(dir, keystoreFileName(source))
+    await mkdir(dir, { recursive: true })
+    await writeFile(target, text, { flag: 'wx', mode: 0o600 })
+    this.node.proc.log(`Keystore copied to ${target}. Restarting the node to load it.`)
+
+    this.importing = network
+    try {
+      try {
+        await this.node.stop()
+        await this.node.start(network)
+      } catch (err) {
+        await rm(target, { force: true })
+        throw err
+      }
+      await this.tryUnlock(this.connection(), password)
+      if (this.current.phase !== 'unlocked') {
+        this.node.proc.log('The keystore did not unlock. Removing the copy and restarting the node without it.')
+        await this.node.stop()
+        await rm(target, { force: true })
+        this.importing = null
+        // A failed start shows on the node card; the password is what the user needs to hear about.
+        await this.node.start(network).catch(() => undefined)
+        throw new Error('That password did not unlock the keystore, so it was not added. Your file is unchanged.')
+      }
+    } finally {
+      this.importing = null
+    }
+
+    this.pickedKeystore = null
+    await this.vault.setWalletPassword(network, password, true)
+    this.node.proc.log('Wallet loaded from the keystore file')
+    // Blocks the node scanned between loading the keystore and unlocking it were checked against no
+    // keys. Scan again now that it knows them, so the balance and history are complete.
+    const after = this.connection()
+    if (((await after.api.walletStatus(after.apiKey)).walletHeight ?? 0) > 0) {
+      await after.api.walletRescan(after.apiKey, 0)
+      this.node.proc.log("Rescanning the chain for this wallet's past transactions")
+    }
+    await this.refresh()
+  }
+
   async unlock(password: string, remember: boolean): Promise<void> {
     const conn = this.connection()
     await this.tryUnlock(conn, password)
@@ -120,7 +197,7 @@ export class WalletManager extends EventEmitter {
 
   private async onNodeReady(network: Network): Promise<void> {
     const conn = this.node.connection()
-    const saved = this.vault.getWalletPassword(network)
+    const saved = this.importing === network ? null : this.vault.getWalletPassword(network)
     // This start-up unlock counts as the one automatic attempt for this lock.
     this.relockTried = saved !== null
     // With a known password, go straight to unlocking so the UI never flashes a password form.
@@ -189,6 +266,7 @@ export class WalletManager extends EventEmitter {
         address: s.isUnlocked && s.changeAddress ? s.changeAddress : null,
         passwordKnown: this.vault.getWalletPassword(conn.network) !== null,
         balanceNanoErg,
+        walletHeight: typeof s.walletHeight === 'number' ? s.walletHeight : null,
         error: phase === 'locked' ? this.current.error : null
       })
       await this.relockGuard(conn, phase)
@@ -208,7 +286,7 @@ export class WalletManager extends EventEmitter {
       return
     }
     const password = this.vault.getWalletPassword(conn.network)
-    if (phase !== 'locked' || !password || this.relockTried) return
+    if (phase !== 'locked' || !password || this.relockTried || this.importing === conn.network) return
     this.relockTried = true
     this.node.proc.log('The node wallet was locked; unlocking it again')
     await this.tryUnlock(conn, password)

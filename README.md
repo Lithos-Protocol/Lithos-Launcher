@@ -13,7 +13,8 @@ what to do next.
   against its published SHA-256 checksum, and nothing is installed system-wide.
 - **Configures** the node and client for Lithos: indexing, mining, and the network (mainnet or testnet).
 - **Creates or restores the wallet**, with a seed phrase screen that asks you to confirm three words and is hidden from
-  screen capture while it is shown.
+  screen capture while it is shown. It can also use an existing node keystore file: the launcher copies it into the
+  node's wallet folder and the node checks its password.
 - **Shows sync progress** (headers, blocks, index) with a time estimate, and starts the Lithos Client by itself once the
   node is ready.
 - **Helps you mine:** picks a starting difficulty from your hashrate using the same formulas as the client's Difficulty
@@ -30,8 +31,9 @@ what to do next.
 - No secret is written to a config file. `ergo.conf` holds only the API key's hash (computed by the node itself), and
   `lithos.conf` reads the key and password from environment variables set when the client starts.
 - The seed phrase is never stored. It is shown once, when the wallet is created.
-- The node's API and the Lithos panel listen on `127.0.0.1` only. Stratum listens on your network so other rigs can
-  connect.
+- The node's API listens on `127.0.0.1` only. So does the Lithos panel, unless you open it to your network in Settings
+  to check on mining from a phone; it then accepts only this computer's own addresses as host names. Stratum listens on
+  your network so other rigs can connect.
 - The window runs sandboxed with context isolation, a strict content security policy and no navigation. Packaged builds
   disable `RunAsNode`, `NODE_OPTIONS` and inspector flags, and verify the app archive's integrity.
 

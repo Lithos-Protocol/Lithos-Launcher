@@ -110,29 +110,6 @@
 </Modal>
 
 <style>
-  .facts {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin: 0;
-    padding: 14px 16px;
-    border: 1px solid var(--border);
-    background: var(--bg-deep);
-    list-style: none;
-    font-size: 12.5px;
-  }
-
-  .facts li {
-    display: grid;
-    grid-template-columns: 110px 1fr;
-    gap: 12px;
-  }
-
-  .facts b {
-    color: var(--text-head);
-    font-weight: 500;
-  }
-
   .balance {
     display: flex;
     flex-wrap: wrap;
@@ -143,7 +120,7 @@
 
   .balance .warn {
     flex-basis: 100%;
-    color: #fcd34d;
+    color: var(--amber-light);
     font-size: 12px;
   }
 </style>

@@ -129,26 +129,4 @@
     font-size: 12px;
   }
 
-  .facts {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin: 0;
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    background: var(--bg-deep);
-    list-style: none;
-    font-size: 12.5px;
-  }
-
-  .facts li {
-    display: grid;
-    grid-template-columns: 110px 1fr;
-    gap: 12px;
-  }
-
-  .facts b {
-    color: var(--text-head);
-    font-weight: 500;
-  }
 </style>

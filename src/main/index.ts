@@ -43,7 +43,7 @@ function createWindow(): BrowserWindow {
     show: false,
     title: 'Lithos Launcher',
     icon: join(app.getAppPath(), 'resources', 'icon.png'),
-    backgroundColor: '#0a0f1e',
+    backgroundColor: '#060913',
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -120,7 +120,7 @@ function main(): void {
     const node = new NodeController(root, vault, (info) => send(IPC.nodeInfo, info))
     node.proc.on('state', (s) => send(IPC.procState, s))
     node.proc.on('logs', (chunk) => send(IPC.logs, chunk))
-    const wallet = new WalletManager(node, vault)
+    const wallet = new WalletManager(root, node, vault)
     wallet.on('state', (s) => send(IPC.wallet, s))
     const skipSyncGate = !app.isPackaged && process.env.LITHOS_LAUNCHER_SKIP_SYNC_GATE === '1'
     const client = new ClientController(root, vault, node, wallet, skipSyncGate, (s) => send(IPC.clientStats, s))

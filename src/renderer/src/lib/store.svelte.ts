@@ -51,6 +51,7 @@ export const ui = $state({
     address: null,
     passwordKnown: false,
     balanceNanoErg: null,
+    walletHeight: null,
     error: null
   } as WalletState,
   clientSettings: null as ClientSettings | null,
@@ -61,7 +62,7 @@ export const ui = $state({
   quickSetup: false,
   platform: '' as string,
   /** Open wallet wizard, if any. */
-  wizard: null as 'create' | 'restore' | null,
+  wizard: null as 'create' | 'restore' | 'keystore' | null,
   progress: {} as Partial<Record<TaskId, TaskProgress>>,
   vault: null as VaultInfo | null,
   /** Development only: the client may start before the node is synced. */

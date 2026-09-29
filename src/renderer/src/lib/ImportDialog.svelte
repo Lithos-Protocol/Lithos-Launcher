@@ -138,7 +138,7 @@
       </ul>
 
       {#if preview.warnings.length}
-        <ul class="warnings">
+        <ul class="warnings warn-note">
           {#each preview.warnings as w (w)}<li>{w}</li>{/each}
         </ul>
       {/if}
@@ -169,7 +169,7 @@
         stopped, then start the node from the dashboard.
       </p>
       {#if preview?.client?.plaintextSecrets && !scrubbed}
-        <div class="warn-box">
+        <div class="warn-box warn-note">
           <p>
             Your old <span class="mono">lithos.conf</span> still holds your node API key and wallet password in plain text.
             The launcher doesn't use that file. Remove them from it?
@@ -190,27 +190,38 @@
 </Modal>
 
 <style>
+  /* Segmented pill control, as on the Mining page. */
   .seg {
-    display: flex;
+    display: inline-flex;
     align-self: flex-start;
-    border: 1px solid var(--border-strong);
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid rgba(125, 211, 252, 0.12);
+    border-radius: 999px;
+    background: rgba(10, 15, 30, 0.7);
   }
 
   .seg button {
-    padding: 7px 16px;
+    padding: 5px 14px;
     border: none;
+    border-radius: 999px;
     background: transparent;
     color: var(--dim);
     font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    text-transform: capitalize;
     cursor: pointer;
   }
 
+  .seg button:hover {
+    color: var(--sky-light);
+  }
+
   .seg button.on {
-    background: rgba(56, 189, 248, 0.1);
-    color: var(--text-head);
+    background: rgba(56, 189, 248, 0.16);
+    color: var(--sky-light);
+    font-weight: 600;
   }
 
   .pickrow {
@@ -218,9 +229,10 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding: 10px 12px;
+    padding: 10px 10px 10px 14px;
     border: 1px solid var(--border);
-    background: var(--bg-deep);
+    border-radius: var(--radius);
+    background: var(--well);
   }
 
   .path {
@@ -230,35 +242,8 @@
     font-size: 12px;
   }
 
-  .facts {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin: 0;
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    background: var(--bg-deep);
-    list-style: none;
-    font-size: 12.5px;
-  }
-
-  .facts li {
-    display: grid;
-    grid-template-columns: 110px minmax(0, 1fr);
-    gap: 12px;
-  }
-
-  .facts b {
-    color: var(--text-head);
-    font-weight: 500;
-  }
-
   .warnings {
-    margin: 0;
-    padding: 8px 12px 8px 28px;
-    border-left: 2px solid var(--amber);
-    background: rgba(245, 158, 11, 0.07);
-    font-size: 12px;
+    padding-left: 28px;
   }
 
   .warn-box {
@@ -266,21 +251,10 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
-    padding: 12px 14px;
-    border-left: 2px solid var(--amber);
-    background: rgba(245, 158, 11, 0.07);
     font-size: 12.5px;
   }
 
   .warn-box p {
     margin: 0;
-  }
-
-  .ok-note {
-    margin: 0;
-    padding: 8px 12px;
-    border-left: 2px solid var(--green);
-    background: rgba(16, 185, 129, 0.07);
-    font-size: 12px;
   }
 </style>

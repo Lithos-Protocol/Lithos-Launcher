@@ -7,25 +7,26 @@
 <span class="dot {status}" style:--size="{size}px" aria-hidden="true"></span>
 
 <style>
+  /* The Mining page's live-ness marker: the dot breathes while running and goes flat when not. */
   .dot {
-    position: relative;
     display: inline-block;
     flex: none;
     width: var(--size);
     height: var(--size);
     border-radius: 50%;
-    background: var(--dim);
+    background: var(--faint);
   }
 
   .running {
-    background: var(--green);
-    box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+    background: var(--mint);
+    animation: pulse 2.2s ease-out infinite;
   }
 
   .starting,
   .stopping {
-    background: var(--amber);
-    box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+    --ring: 251, 191, 36;
+    background: var(--amber-light);
+    animation: pulse 1.2s ease-out infinite;
   }
 
   .crashed {
@@ -33,30 +34,15 @@
     box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
   }
 
-  .running::after,
-  .starting::after,
-  .stopping::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    background: inherit;
-    animation: pulse 2s ease-out infinite;
-  }
-
-  .starting::after,
-  .stopping::after {
-    animation-duration: 1.1s;
-  }
-
   @keyframes pulse {
-    from {
-      transform: scale(1);
-      opacity: 0.6;
+    0% {
+      box-shadow: 0 0 0 0 rgba(var(--ring, 110, 231, 183), 0.55);
     }
-    to {
-      transform: scale(2.6);
-      opacity: 0;
+    70% {
+      box-shadow: 0 0 0 calc(var(--size) * 0.8) rgba(var(--ring, 110, 231, 183), 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(var(--ring, 110, 231, 183), 0);
     }
   }
 </style>

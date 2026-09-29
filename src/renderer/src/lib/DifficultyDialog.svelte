@@ -124,7 +124,7 @@
           }}
         >
           <span class="micro">{p.label}{p.mean === 15 ? ' · recommended' : ''}</span>
-          <span class="diff mono">{p.diff ?? '—'}</span>
+          <span class="diff">{p.diff ?? '—'}</span>
           <span class="meta">Averages {p.mean} super shares · paid in {Math.round(p.chance * 100)}% of windows</span>
           <span class="meta dim">{p.note}</span>
         </button>
@@ -168,7 +168,7 @@
     {/if}
 
     {#if selected && selectedValue}
-      <div class="summary">
+      <div class="summary info-note">
         <span>Selected <b class="mono">{selected}</b></span>
         <span>Bond per proof <b class="mono">{bondErg(selectedValue).toFixed(4)} ERG</b> (refunded)</span>
         {#if selectedMean !== null}
@@ -228,7 +228,7 @@
   }
 
   .hint-line.warn {
-    color: #fca5a5;
+    color: var(--red-light);
   }
 
   .picks {
@@ -241,25 +241,27 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: 12px 14px;
+    padding: 13px 15px;
     border: 1px solid var(--border-strong);
-    background: var(--bg-deep);
+    border-radius: 14px;
+    background: var(--well);
     color: var(--text);
     text-align: left;
     cursor: pointer;
     transition:
       border-color 0.15s,
-      background 0.15s;
+      background 0.15s,
+      box-shadow 0.2s;
   }
 
   .pick:hover {
-    border-color: rgba(56, 189, 248, 0.45);
+    border-color: rgba(125, 211, 252, 0.4);
   }
 
   .pick.on {
     border-color: var(--sky);
     background: rgba(56, 189, 248, 0.08);
-    box-shadow: 0 0 0 1px var(--sky);
+    box-shadow: 0 0 18px rgba(56, 189, 248, 0.22);
   }
 
   .pick.start .micro {
@@ -268,8 +270,12 @@
 
   .diff {
     color: var(--text-head);
-    font-size: 22px;
-    font-weight: 500;
+    font-family: var(--sans);
+    font-size: 26px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1.1;
   }
 
   .meta {
@@ -282,11 +288,6 @@
 
   .link {
     align-self: flex-start;
-    border: none;
-    background: none;
-    padding: 0;
-    color: var(--sky);
-    cursor: pointer;
   }
 
   .advanced {
@@ -299,14 +300,10 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px 24px;
-    padding: 10px 14px;
-    border-left: 2px solid var(--sky);
-    background: rgba(56, 189, 248, 0.06);
-    font-size: 12.5px;
   }
 
   .summary b {
     color: var(--text-head);
-    font-weight: 500;
+    font-weight: 600;
   }
 </style>

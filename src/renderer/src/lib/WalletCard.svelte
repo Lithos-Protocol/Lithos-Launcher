@@ -1,6 +1,6 @@
 <script lang="ts">
   import { bondErg, parseConfigDiff } from '@shared/mining'
-  import { fmtErg, shortAddress } from './format'
+  import { fmtErg, fmtInt, fmtPct, shortAddress } from './format'
   import ProgressBar from './ProgressBar.svelte'
   import { copyText, ui, unlockWallet } from './store.svelte'
 
@@ -13,6 +13,12 @@
   const secure = $derived(ui.vault?.secure ?? false)
   const diffValue = $derived(parseConfigDiff(ui.clientSettings?.diff))
   const bond = $derived(diffValue ? bondErg(diffValue) : null)
+  // A restored or imported wallet scans the whole chain for its history; show how far it has got.
+  const chainHeight = $derived(ui.info?.fullHeight ?? null)
+  const scanning = $derived(
+    w.phase === 'unlocked' && w.walletHeight !== null && chainHeight !== null && w.walletHeight < chainHeight - 3
+  )
+  const balance = $derived(w.balanceNanoErg === null ? null : fmtErg(w.balanceNanoErg).split('.'))
 
   async function unlock(event: SubmitEvent): Promise<void> {
     event.preventDefault()
@@ -35,11 +41,13 @@
 
 <section class="panel" aria-labelledby="wallet-title">
   <div class="panel-head">
-    <span class="micro" id="wallet-title">03 · Wallet</span>
+    <h2 class="card-title" id="wallet-title">
+      <span class="swatch you" aria-hidden="true"></span>Wallet<span class="no">03</span>
+    </h2>
     {#if w.phase === 'unlocked'}
-      <span class="badge micro ok"><span class="sq" aria-hidden="true"></span>Unlocked</span>
+      <span class="badge micro ok"><span class="dot" aria-hidden="true"></span>Unlocked</span>
     {:else if w.phase === 'locked' || w.phase === 'unlocking'}
-      <span class="badge micro warn"><span class="sq" aria-hidden="true"></span>Locked</span>
+      <span class="badge micro warn"><span class="dot" aria-hidden="true"></span>Locked</span>
     {/if}
   </div>
 
@@ -51,9 +59,10 @@
         This node has no wallet yet. The Lithos Client signs its mining transactions with it, so use a wallet made
         just for mining.
       </p>
+      <button class="btn primary" onclick={() => (ui.wizard = 'create')}>Create a new wallet</button>
       <div class="actions">
-        <button class="btn primary" onclick={() => (ui.wizard = 'create')}>Create wallet</button>
-        <button class="btn" onclick={() => (ui.wizard = 'restore')}>Restore</button>
+        <button class="btn" onclick={() => (ui.wizard = 'restore')}>Restore seed phrase</button>
+        <button class="btn" onclick={() => (ui.wizard = 'keystore')}>Use keystore file</button>
       </div>
     {:else if w.phase === 'unlocking'}
       <p class="note">Unlocking the wallet…</p>
@@ -83,19 +92,34 @@
         <button class="btn primary" type="submit" disabled={!password}>Unlock wallet</button>
       </form>
     {:else}
-      <div class="address">
+      <div class="balance">
+        <span class="micro">Balance</span>
+        <span class="big num" class:zero={w.balanceNanoErg === 0}>
+          {#if balance}{balance[0]}{#if balance[1]}<span class="dec">.{balance[1]}</span>{/if}{:else}—{/if}<span
+            class="unit">ERG</span
+          >
+        </span>
+      </div>
+      <div class="address well">
         <span class="micro">Address</span>
         <code class="mono" title={w.address ?? ''}>{w.address ? shortAddress(w.address) : '—'}</code>
         <button class="btn small" onclick={copy} disabled={!w.address}>{copied ? 'Copied' : 'Copy'}</button>
       </div>
-      <div class="balance">
-        <span class="micro">Balance</span>
-        <span class="mono" class:zero={w.balanceNanoErg === 0}>
-          {w.balanceNanoErg === null ? '—' : `${fmtErg(w.balanceNanoErg)} ERG`}
-        </span>
-      </div>
-      {#if w.balanceNanoErg === 0}
-        <p class="note">
+      {#if scanning && w.walletHeight !== null && chainHeight !== null}
+        <div class="scan">
+          <div class="scan-head">
+            <span class="micro">Scanning history</span>
+            <span class="num">{fmtPct(w.walletHeight / chainHeight)}</span>
+          </div>
+          <ProgressBar value={w.walletHeight / chainHeight} label="Wallet scan" tone="you" />
+          <span class="sub">
+            Block <span class="num">{fmtInt(w.walletHeight)}</span> of <span class="num">{fmtInt(chainHeight)}</span>.
+            The balance fills in as it goes.
+          </span>
+        </div>
+      {/if}
+      {#if w.balanceNanoErg === 0 && !scanning}
+        <p class="warn-note">
           Send some ERG to this address. Each proof you submit posts a small refundable bond{bond
             ? ` (${bond.toFixed(4)} ERG at your difficulty)`
             : ''} plus a fee.
@@ -118,14 +142,14 @@
   .body {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 12px;
     padding: 0 20px 20px;
   }
 
   .actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 10px;
   }
 
   .unlock {
@@ -140,25 +164,63 @@
     gap: 6px;
   }
 
-  .sq {
+  .dot {
     width: 7px;
     height: 7px;
+    border-radius: 50%;
   }
 
   .ok {
-    color: #6ee7b7;
+    color: var(--mint);
   }
 
-  .ok .sq {
-    background: var(--green);
+  .ok .dot {
+    background: var(--mint);
+    box-shadow: 0 0 8px rgba(110, 231, 183, 0.5);
   }
 
   .warn {
-    color: #fcd34d;
+    color: var(--amber-light);
   }
 
-  .warn .sq {
+  .warn .dot {
     background: var(--amber);
+  }
+
+  .balance {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  /* The Mining page's big stat: heavy tabular figures, unit in the "you" colour. */
+  .big {
+    color: var(--text-head);
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+  }
+
+  .big.zero {
+    color: var(--amber-light);
+  }
+
+  .dec {
+    color: var(--muted);
+    font-size: 0.62em;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .unit {
+    margin-left: 5px;
+    color: var(--amber-light);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.07em;
   }
 
   .address {
@@ -166,21 +228,7 @@
     grid-template-columns: auto 1fr auto;
     align-items: center;
     gap: 12px;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    background: var(--bg-deep);
-  }
-
-  .balance {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    color: var(--text-head);
-    font-size: 13px;
-  }
-
-  .balance .zero {
-    color: #fcd34d;
+    padding: 8px 8px 8px 12px;
   }
 
   code {
@@ -189,5 +237,28 @@
     font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .scan {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .scan-head {
+    display: flex;
+    justify-content: space-between;
+    color: var(--amber-light);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .sub {
+    color: var(--faint);
+    font-size: 11px;
+  }
+
+  .sub .num {
+    color: var(--muted);
   }
 </style>

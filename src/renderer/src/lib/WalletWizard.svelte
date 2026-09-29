@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { MIN_PASSWORD_LENGTH, MNEMONIC_LENGTHS } from '@shared/types'
+  import { MIN_PASSWORD_LENGTH, MNEMONIC_LENGTHS, type KeystorePick } from '@shared/types'
   import { errorText, ui } from './store.svelte'
 
-  type Step = 'password' | 'seed' | 'confirm' | 'restore' | 'done'
+  type Step = 'password' | 'seed' | 'confirm' | 'restore' | 'keystore' | 'done'
 
   const mode = ui.wizard ?? 'create'
-  let step = $state<Step>(mode === 'restore' ? 'restore' : 'password')
+  let step = $state<Step>(mode === 'restore' ? 'restore' : mode === 'keystore' ? 'keystore' : 'password')
+  let keystore = $state<KeystorePick | null>(null)
   let password = $state('')
   let confirmPassword = $state('')
   let showPassword = $state(false)
@@ -105,6 +106,32 @@
     step = 'done'
   }
 
+  /** The main process opens the picker and keeps the path; only the file's name comes back. */
+  async function chooseKeystore(): Promise<void> {
+    error = null
+    try {
+      keystore = (await window.lithos.pickKeystore()) ?? keystore
+    } catch (err) {
+      error = errorText(err)
+    }
+  }
+
+  async function useKeystore(event: SubmitEvent): Promise<void> {
+    event.preventDefault()
+    if (!keystore || !password) return
+    busy = true
+    error = null
+    try {
+      await window.lithos.importKeystore(password)
+      password = ''
+      step = 'done'
+    } catch (err) {
+      error = errorText(err)
+    } finally {
+      busy = false
+    }
+  }
+
   async function restore(event: SubmitEvent): Promise<void> {
     event.preventDefault()
     if (passwordProblem || !restoreCountOk) return
@@ -127,7 +154,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 <div class="overlay">
-  <div class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
     {#if step === 'password'}
       <form class="content" onsubmit={create} use:focusFirst>
         <div class="top">
@@ -169,7 +196,7 @@
       <div class="content" use:focusFirst>
         <div class="top"><span class="micro">Create wallet · Step 2 of 3</span></div>
         <h2 id="wizard-title">Write down your seed phrase</h2>
-        <ul class="warnings">
+        <ul class="warnings warn-note">
           <li>Write these {words.length} words on paper, in order.</li>
           <li>Anyone who has them can take the funds in this wallet. Never type them into a website.</li>
           <li>The launcher does not save them and cannot show them again.</li>
@@ -223,7 +250,7 @@
           <button type="button" class="x" aria-label="Close" onclick={close} disabled={busy}>✕</button>
         </div>
         <h2 id="wizard-title">Restore from a seed phrase</h2>
-        <p class="note">
+        <p class="warn-note">
           Only restore a seed made for mining. The Lithos Client uses this wallet's keys, so don't use your main
           savings wallet.
         </p>
@@ -270,6 +297,56 @@
           {busy ? 'Restoring…' : 'Restore wallet'}
         </button>
       </form>
+    {:else if step === 'keystore'}
+      <form class="content" onsubmit={useKeystore} use:focusFirst>
+        <div class="top">
+          <span class="micro">Use a keystore file</span>
+          <button type="button" class="x" aria-label="Close" onclick={close} disabled={busy}>✕</button>
+        </div>
+        <h2 id="wizard-title">Use an existing keystore</h2>
+        <p class="note">
+          A keystore is the encrypted wallet file an Ergo node keeps in <span class="mono">.ergo/wallet/keystore</span>.
+          The launcher copies it into this node's wallet folder and leaves your file as it is.
+        </p>
+        <p class="warn-note">
+          Only use a wallet made for mining. The Lithos Client signs with this wallet's keys, so don't use your main
+          savings wallet.
+        </p>
+        <div class="pick well">
+          <div class="pick-body">
+            <span class="micro">Keystore file</span>
+            {#if keystore}
+              <span class="pick-name mono">{keystore.name}</span>
+              <span class="pick-folder mono">{keystore.folder}</span>
+            {:else}
+              <span class="pick-folder">No file chosen</span>
+            {/if}
+          </div>
+          <button type="button" class="btn small" onclick={chooseKeystore} disabled={busy}>
+            {keystore ? 'Change…' : 'Choose file…'}
+          </button>
+        </div>
+        <div class="field">
+          <label class="micro" for="keystore-password">Keystore password</label>
+          <input
+            id="keystore-password"
+            class="input"
+            type={showPassword ? 'text' : 'password'}
+            autocomplete="current-password"
+            disabled={busy}
+            bind:value={password}
+          />
+        </div>
+        <label class="check"><input type="checkbox" bind:checked={showPassword} /> Show password</label>
+        <p class="info-note">
+          The node restarts once to load the keystore, then checks this password itself. If it doesn't unlock, the copy
+          is taken out again. Afterwards the wallet scans the chain for its history, which can take a while.
+        </p>
+        {#if error}<p class="error-text" role="alert">{error}</p>{/if}
+        <button class="btn primary" type="submit" disabled={busy || !keystore || !password}>
+          {busy ? 'Restarting the node to load it…' : 'Use this keystore'}
+        </button>
+      </form>
     {:else}
       <div class="content done" use:focusFirst>
         <div class="big-tick" aria-hidden="true">✓</div>
@@ -277,7 +354,9 @@
         <p class="note">
           {mode === 'restore'
             ? 'Your wallet is restored and unlocked. Balances appear as the node syncs.'
-            : 'Your wallet is created and unlocked. Keep your paper copy somewhere safe and offline.'}
+            : mode === 'keystore'
+              ? 'Your keystore is loaded and unlocked. The wallet is scanning the chain for its history, so the balance fills in as it goes.'
+              : 'Your wallet is created and unlocked. Keep your paper copy somewhere safe and offline.'}
         </p>
         <button class="btn primary" onclick={close}>Finish</button>
       </div>
@@ -286,6 +365,7 @@
 </div>
 
 <style>
+  /* Same look as Modal; the wizard keeps its own overlay so it can refuse to close mid-seed. */
   .overlay {
     position: fixed;
     inset: 0;
@@ -293,7 +373,7 @@
     display: grid;
     place-items: center;
     padding: 24px;
-    background: rgba(6, 9, 19, 0.82);
+    background: rgba(4, 6, 13, 0.8);
     backdrop-filter: blur(6px);
   }
 
@@ -302,6 +382,9 @@
     max-height: 100%;
     overflow-x: hidden;
     overflow-y: auto;
+    border: 1px solid var(--border-strong);
+    border-radius: 22px;
+    background: var(--surface);
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
   }
 
@@ -320,38 +403,41 @@
   }
 
   .x {
-    border: none;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid transparent;
+    border-radius: 50%;
     background: none;
     color: var(--dim);
-    font-size: 14px;
+    font-size: 13px;
     cursor: pointer;
   }
 
   .x:hover:not(:disabled) {
+    border-color: var(--border-strong);
     color: var(--text-head);
   }
 
   h2 {
     margin: 0;
     color: var(--text-head);
-    font-size: 20px;
+    font-family: var(--display);
+    font-size: 23px;
     font-weight: 700;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
   }
 
   .hint {
     margin: 0;
-    color: #fcd34d;
+    color: var(--amber-light);
     font-size: 12px;
   }
 
   .warnings {
-    margin: 0;
-    padding: 12px 16px 12px 32px;
-    border-left: 2px solid var(--amber);
-    background: rgba(245, 158, 11, 0.07);
-    color: var(--text);
-    font-size: 12.5px;
+    padding-left: 30px;
   }
 
   .warnings li + li {
@@ -373,7 +459,8 @@
     gap: 10px;
     padding: 9px 12px;
     border: 1px solid var(--border-strong);
-    background: var(--bg-deep);
+    border-radius: 10px;
+    background: var(--well);
     user-select: text;
   }
 
@@ -407,6 +494,35 @@
     line-height: 1.6;
   }
 
+  .pick {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 10px 10px 14px;
+  }
+
+  .pick-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .pick-name {
+    overflow: hidden;
+    color: var(--text-head);
+    font-size: 12.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pick-folder {
+    overflow-wrap: anywhere;
+    color: var(--dim);
+    font-size: 11.5px;
+  }
+
   .done {
     align-items: center;
     padding-top: 36px;
@@ -418,8 +534,9 @@
     place-items: center;
     width: 56px;
     height: 56px;
-    background: var(--green);
-    box-shadow: 0 0 40px rgba(16, 185, 129, 0.5);
+    border-radius: 50%;
+    background: var(--mint);
+    box-shadow: 0 0 40px rgba(110, 231, 183, 0.45);
     color: #04111f;
     font-size: 28px;
     font-weight: 700;

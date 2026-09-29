@@ -1,23 +1,35 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { DEFAULT_REDUCTION_MULTIPLIER, NETWORKS, REDUCTION_MULTIPLIERS, type LauncherInfo } from '@shared/types'
+  import {
+    DEFAULT_OFFLINE_GENERATION,
+    DEFAULT_REDUCTION_MULTIPLIER,
+    NETWORKS,
+    REDUCTION_MULTIPLIERS,
+    type LauncherInfo
+  } from '@shared/types'
   import Modal from './Modal.svelte'
   import { errorText, refresh, restartClient, saveClientSettings, ui } from './store.svelte'
 
   const api = window.lithos
+  const network = ui.network
   let info = $state<LauncherInfo | null>(null)
   let nodeMb = $state('')
   let clientMb = $state('')
+  let offlineGeneration = $state(DEFAULT_OFFLINE_GENERATION[network])
   let httpPort = $state('')
   let stratumPort = $state('')
   let multiplier = $state<number>(DEFAULT_REDUCTION_MULTIPLIER)
   let testMode = $state(false)
+  let lanPanel = $state(false)
   let message = $state<string | null>(null)
   let error = $state<string | null>(null)
   let busy = $state(false)
 
   const running = $derived(ui.node.status !== 'stopped' && ui.node.status !== 'crashed')
-  const clientRunning = $derived(ui.client.status === 'running' && ui.client.network === ui.network)
+  const nodeRunningHere = $derived(running && ui.node.network === network)
+  const clientRunning = $derived(ui.client.status === 'running' && ui.client.network === network)
+  // The first address is this computer's main network adapter (virtual ones are listed last).
+  const lanUrl = $derived(ui.lanAddresses[0] ? `http://${ui.lanAddresses[0]}:${httpPort || 9000}` : null)
 
   function loadClientFields(): void {
     const s = ui.clientSettings
@@ -26,12 +38,15 @@
     stratumPort = String(s.stratumPort)
     multiplier = s.reductionMultiplier
     testMode = s.forceConfigDiff
+    lanPanel = s.lanPanel
   }
 
   onMount(async () => {
-    info = await api.getLauncherInfo()
+    const [launcher, node] = await Promise.all([api.getLauncherInfo(), api.getNodeSettings(network)])
+    info = launcher
     nodeMb = info.heapOverridden.node ? String(info.heap.nodeMb) : ''
     clientMb = info.heapOverridden.client ? String(info.heap.clientMb) : ''
+    offlineGeneration = node.offlineGeneration
     loadClientFields()
   })
 
@@ -63,13 +78,23 @@
       return 'Memory settings saved. They apply the next time the node and client start.'
     })
 
+  const saveNode = (): Promise<void> =>
+    run(async () => {
+      const saved = await api.setNodeSettings(network, { offlineGeneration })
+      offlineGeneration = saved.offlineGeneration
+      return nodeRunningHere
+        ? 'Saved. Restart the node for it to take effect.'
+        : 'Saved. The node uses this the next time it starts.'
+    })
+
   const saveClient = (): Promise<void> =>
     run(async () => {
       const err = await saveClientSettings({
         httpPort: Number(httpPort),
         stratumPort: Number(stratumPort),
         reductionMultiplier: multiplier,
-        forceConfigDiff: testMode
+        forceConfigDiff: testMode,
+        lanPanel
       })
       if (err) throw new Error(err)
       loadClientFields()
@@ -80,12 +105,12 @@
       return 'Saved. The client uses these settings the next time it starts.'
     })
 
-  const clearImport = (network: (typeof NETWORKS)[number]): Promise<void> =>
+  const clearImport = (target: (typeof NETWORKS)[number]): Promise<void> =>
     run(async () => {
-      await api.clearImport(network)
+      await api.clearImport(target)
       info = await api.getLauncherInfo()
       await refresh()
-      return `The ${network} node now uses the launcher's own data folder again.`
+      return `The ${target} node now uses the launcher's own data folder again.`
     })
 </script>
 
@@ -118,12 +143,12 @@
 
       <section>
         <h3>Existing setups</h3>
-        {#each NETWORKS as network (network)}
+        {#each NETWORKS as n (n)}
           <div class="kv">
-            <span class="micro">{network} node data</span>
-            {#if info.dataDirs[network]}
-              <span class="mono path">{info.dataDirs[network]} <span class="tag">imported</span></span>
-              <button class="link micro" onclick={() => clearImport(network)} disabled={busy}>Stop using it</button>
+            <span class="micro">{n} node data</span>
+            {#if info.dataDirs[n]}
+              <span class="mono path">{info.dataDirs[n]} <span class="tag">imported</span></span>
+              <button class="link micro" onclick={() => clearImport(n)} disabled={busy}>Stop using it</button>
             {:else}
               <span class="dim">Launcher's own folder</span>
             {/if}
@@ -151,7 +176,24 @@
       </section>
 
       <section>
-        <h3>Lithos Client · {ui.network}</h3>
+        <h3><span class="swatch network" aria-hidden="true"></span>Ergo node · {network}</h3>
+        <label class="check">
+          <input type="checkbox" bind:checked={offlineGeneration} />
+          Offline generation: hand out mining work right after a restart
+        </label>
+        <span class="hint">
+          The node hands out mining work without first waiting for a new block from the network, so mining resumes
+          straight away after a restart. Ergo turns this on by default for mainnet{DEFAULT_OFFLINE_GENERATION[network]
+            ? ''
+            : ' but not for testnet'}.
+        </span>
+        <div class="row">
+          <button class="btn small" onclick={saveNode} disabled={busy}>Save node settings</button>
+        </div>
+      </section>
+
+      <section>
+        <h3><span class="swatch lithos" aria-hidden="true"></span>Lithos Client · {network}</h3>
         <div class="grid2">
           <div class="field">
             <label class="micro" for="http-port">Panel port</label>
@@ -180,6 +222,24 @@
           </span>
         </div>
         <label class="check">
+          <input type="checkbox" bind:checked={lanPanel} />
+          Open the Lithos panel to other devices on your network
+        </label>
+        <span class="hint">
+          Lets you check on mining from your phone or another computer on the same Wi-Fi or LAN{lanUrl
+            ? `, at ${lanUrl}`
+            : ''}. Otherwise the panel only opens on this computer.
+        </span>
+        {#if lanPanel}
+          <p class="warn-note">
+            Anyone on your network can open the panel and see its statistics. Actions that spend from the wallet still
+            need the client's API key, which the panel sends over plain HTTP, so only enable this on a network you
+            trust.{ui.platform === 'win32'
+              ? ' If Windows asks whether Java may use the network, allow it on private networks.'
+              : ''}
+          </p>
+        {/if}
+        <label class="check">
           <input type="checkbox" bind:checked={testMode} />
           Test mode: mine at the configured difficulty without committing it (forceConfigDiff)
         </label>
@@ -207,15 +267,16 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 14px 0;
-    border-top: 1px solid var(--border);
+    padding: 16px 18px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: rgba(15, 22, 41, 0.45);
   }
 
   h3 {
-    margin: 0;
-    color: var(--text-head);
-    font-size: 14px;
-    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .path {
@@ -247,7 +308,7 @@
 
   .tag {
     margin-left: 6px;
-    color: #6ee7b7;
+    color: var(--mint);
     font-family: var(--mono);
     font-size: 10px;
     text-transform: uppercase;
@@ -259,31 +320,7 @@
     font-size: 11.5px;
   }
 
-  .link {
-    border: none;
-    background: none;
-    padding: 0;
-    color: var(--sky);
-    cursor: pointer;
-  }
-
   select.input {
     appearance: auto;
-  }
-
-  .warn-note {
-    margin: 0;
-    padding: 8px 12px;
-    border-left: 2px solid var(--amber);
-    background: rgba(245, 158, 11, 0.07);
-    font-size: 12px;
-  }
-
-  .ok-note {
-    margin: 0;
-    padding: 8px 12px;
-    border-left: 2px solid var(--green);
-    background: rgba(16, 185, 129, 0.07);
-    font-size: 12px;
   }
 </style>

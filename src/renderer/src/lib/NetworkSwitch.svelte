@@ -21,31 +21,33 @@
 </div>
 
 <style>
+  /* Pill tabs, like the Mining page's section tabs: mainnet lights cyan, testnet purple. */
   .switch {
-    display: flex;
-    border: 1px solid var(--border-strong);
-    background: rgba(6, 9, 19, 0.6);
+    display: inline-flex;
+    gap: 3px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: rgba(15, 22, 41, 0.6);
   }
 
   button {
-    position: relative;
-    padding: 8px 18px;
+    padding: 7px 18px;
     border: none;
+    border-radius: 999px;
     background: transparent;
-    color: var(--dim);
-    font-family: var(--mono);
-    font-size: 11px;
+    color: var(--muted);
+    font-size: 12.5px;
     font-weight: 500;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+    text-transform: capitalize;
     cursor: pointer;
     transition:
       color 0.15s,
       background 0.15s;
   }
 
-  button:hover:not(:disabled) {
-    color: var(--text);
+  button:hover:not(:disabled):not(.active) {
+    color: var(--purple-light);
   }
 
   button:disabled {
@@ -53,31 +55,15 @@
   }
 
   button.active {
-    color: var(--text-head);
+    color: #060913;
+    font-weight: 600;
   }
 
   button.mainnet.active {
-    background: rgba(56, 189, 248, 0.1);
+    background: var(--grad-btn);
   }
 
   button.testnet.active {
-    background: rgba(168, 85, 247, 0.12);
-  }
-
-  button.active::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: -1px;
-    height: 2px;
-  }
-
-  button.mainnet.active::after {
-    background: var(--sky);
-  }
-
-  button.testnet.active::after {
-    background: var(--purple);
+    background: var(--grad-purple);
   }
 </style>

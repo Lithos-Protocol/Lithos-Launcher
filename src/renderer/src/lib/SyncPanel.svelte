@@ -15,6 +15,8 @@
   }
 
   const view = $derived(ui.info ? syncView(ui.info) : null)
+  // Until a peer reports the chain height, a target or percentage would be a guess.
+  const known = $derived(view !== null && view.stage !== 'connecting')
 
   const rows = $derived([
     { stage: 'headers' as const, label: 'Headers', value: view?.headers ?? 0 },
@@ -36,24 +38,19 @@
     <span class="headline">{view ? HEADLINE[view.stage] : 'Node not running'}</span>
   </div>
 
-  <ol class="rows">
+  <ol class="rails">
     {#each rows as row (row.stage)}
       {@const state = rowState(row.stage)}
-      {@const fraction = view && view.target > 0 ? row.value / view.target : 0}
-      <!-- Until a peer reports the chain height, a target or percentage would be a guess. -->
-      {@const known = view !== null && view.stage !== 'connecting'}
-      <li class="row {state}">
-        <span class="marker" aria-hidden="true">{state === 'done' ? '✓' : ''}</span>
-        <span class="label">{row.label}</span>
-        <span class="mono count">
-          {view ? (known ? `${fmtInt(row.value)} / ${fmtInt(view.target)}` : fmtInt(row.value)) : '—'}
-        </span>
-        <span class="mono pct">{known ? fmtPct(fraction) : ''}</span>
-        {#if state === 'active'}
-          <div class="bar">
-            <ProgressBar value={fraction} label="{row.label} sync" />
-            <span class="eta mono">{ui.syncEta === null ? 'estimating time left…' : fmtEta(ui.syncEta)}</span>
-          </div>
+      {@const fraction = known && view && view.target > 0 ? row.value / view.target : 0}
+      <li class="rail {state}">
+        <span class="name">{row.label}</span>
+        <ProgressBar value={fraction} label="{row.label} sync" />
+        <span class="pct num">{known ? fmtPct(fraction) : view ? fmtInt(row.value) : '—'}</span>
+        {#if state === 'active' && view}
+          <span class="sub">
+            <span class="num">{fmtInt(row.value)}</span> / <span class="num">{fmtInt(view.target)}</span> ·
+            {ui.syncEta === null ? 'estimating time left…' : fmtEta(ui.syncEta)}
+          </span>
         {/if}
       </li>
     {/each}
@@ -62,8 +59,11 @@
 
 <style>
   .sync {
-    padding: 14px 20px 6px;
-    border-top: 1px solid var(--border);
+    margin: 0 20px;
+    padding: 12px 14px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--well);
   }
 
   .head {
@@ -81,65 +81,44 @@
   }
 
   .synced .headline {
-    color: #6ee7b7;
+    color: var(--mint);
   }
 
-  .rows {
-    list-style: none;
+  .rails {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
     margin: 0;
     padding: 0;
+    list-style: none;
   }
 
-  .row {
+  /* One Mining-page rail per stage: name, bar, figure. */
+  .rail {
     display: grid;
-    grid-template-columns: 16px 64px 1fr auto;
+    grid-template-columns: 64px minmax(0, 1fr) 52px;
     align-items: center;
-    column-gap: 10px;
-    padding: 6px 0;
+    column-gap: 12px;
+    row-gap: 4px;
   }
 
-  .marker {
-    display: grid;
-    place-items: center;
-    width: 14px;
-    height: 14px;
-    border: 1px solid var(--border-strong);
-    color: #04111f;
-    font-size: 10px;
-    font-weight: 700;
-  }
-
-  .done .marker {
-    border-color: var(--green);
-    background: var(--green);
-  }
-
-  .active .marker {
-    border-color: var(--sky);
-    background: rgba(56, 189, 248, 0.3);
-    box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
-  }
-
-  .label {
-    color: var(--muted);
-    font-size: 12px;
-  }
-
-  .active .label,
-  .done .label {
-    color: var(--text-head);
-  }
-
-  .count {
+  .name {
     color: var(--dim);
-    font-size: 11px;
-    text-align: right;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .active .name,
+  .done .name {
+    color: var(--muted);
   }
 
   .pct {
-    min-width: 48px;
-    color: var(--muted);
-    font-size: 11px;
+    color: var(--dim);
+    font-size: 12px;
+    font-weight: 600;
     text-align: right;
   }
 
@@ -147,16 +126,17 @@
     color: var(--sky-light);
   }
 
-  .bar {
-    grid-column: 2 / -1;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-top: 6px;
+  .done .pct {
+    color: var(--text-head);
   }
 
-  .eta {
-    color: var(--dim);
-    font-size: 10.5px;
+  .sub {
+    grid-column: 2 / -1;
+    color: var(--faint);
+    font-size: 11px;
+  }
+
+  .sub .num {
+    color: var(--muted);
   }
 </style>

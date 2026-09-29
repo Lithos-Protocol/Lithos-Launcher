@@ -70,9 +70,9 @@
         fontSize: 12,
         lineHeight: 1.3,
         theme: {
-          background: '#070b16',
+          background: '#050811',
           foreground: '#cbd5e1',
-          cursor: '#070b16',
+          cursor: '#050811',
           selectionBackground: 'rgba(56, 189, 248, 0.25)',
           scrollbarSliderBackground: 'rgba(56, 189, 248, 0.15)',
           scrollbarSliderHoverBackground: 'rgba(56, 189, 248, 0.3)',
@@ -109,7 +109,7 @@
 <style>
   .term {
     position: absolute;
-    inset: 12px 0 12px 16px;
+    inset: 10px 4px 10px 14px;
   }
 
   .hidden {

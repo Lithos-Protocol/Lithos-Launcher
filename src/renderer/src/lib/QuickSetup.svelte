@@ -78,7 +78,7 @@
     </div>
 
     {#if step === 'welcome'}
-      <h2 id="qs-title">Let's get you mining on Lithos</h2>
+      <h2 id="qs-title">Let's get you mining on <span class="flow-word">Lithos</span></h2>
       <p class="note">The launcher sets everything up for you:</p>
       <ol class="plan">
         <li>Downloads Java, the Ergo node and the Lithos Client (about 230 MB), checking each download.</li>
@@ -142,7 +142,7 @@
         </ul>
         <p class="note">Installs to <code class="mono">{check.installRoot}</code></p>
         {#if ui.platform === 'win32'}
-          <p class="note callout">
+          <p class="info-note">
             Windows will ask whether Java may use the network when the node and client first start. Choose
             <b>Allow</b> for private networks so the node can find peers and your mining rigs can connect.
           </p>
@@ -172,7 +172,7 @@
         />
       </div>
       {#if startDiff}
-        <p class="note callout ok">Starting difficulty: <b class="mono">{startDiff}</b></p>
+        <p class="ok-note">Starting difficulty: <b class="mono">{startDiff}</b></p>
       {:else if hashrateText.trim()}
         <p class="note">Add a unit: 150 MH/s, 150M or 1.2 GH/s</p>
       {/if}
@@ -224,7 +224,9 @@
           {/if}
         </li>
         <li class:done={walletReady}>
-          {walletReady ? 'Wallet ready.' : 'Create a wallet made just for mining, and back up its seed phrase.'}
+          {walletReady
+            ? 'Wallet ready.'
+            : 'Create a wallet made just for mining and back up its seed phrase, or bring one you already have.'}
         </li>
       </ol>
       {#if ui.nodeError}<p class="error-text" role="alert">{ui.nodeError}</p>{/if}
@@ -234,7 +236,8 @@
             {ui.node.status === 'starting' ? 'Starting…' : 'Start node'}
           </button>
         {:else if ui.wallet.phase === 'uninitialized'}
-          <button class="btn" onclick={() => (ui.wizard = 'restore')}>Restore instead</button>
+          <button class="btn" onclick={() => (ui.wizard = 'keystore')}>Use keystore file</button>
+          <button class="btn" onclick={() => (ui.wizard = 'restore')}>Restore seed phrase</button>
           <button class="btn primary" onclick={() => (ui.wizard = 'create')}>Create wallet</button>
         {:else if walletReady}
           <button class="btn primary" onclick={() => (step = 'done')}>Continue</button>
@@ -275,7 +278,7 @@
   }
 
   .plan li.done {
-    color: #6ee7b7;
+    color: var(--mint);
   }
 
   .plan.next {
@@ -297,31 +300,45 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: 18px;
+    padding: 18px 20px;
     border: 1px solid var(--border-strong);
-    background: var(--bg-deep);
+    border-radius: 16px;
+    background: var(--well);
     color: var(--text);
     text-align: left;
     cursor: pointer;
     transition:
       border-color 0.15s,
-      background 0.15s;
+      background 0.15s,
+      box-shadow 0.2s;
   }
 
   .card.mainnet:hover {
     border-color: var(--sky);
     background: rgba(56, 189, 248, 0.07);
+    box-shadow: 0 0 22px rgba(56, 189, 248, 0.18);
   }
 
   .card.testnet:hover {
     border-color: var(--purple);
     background: rgba(168, 85, 247, 0.08);
+    box-shadow: 0 0 22px rgba(168, 85, 247, 0.2);
+  }
+
+  .card.mainnet .micro {
+    color: var(--sky-light);
+  }
+
+  .card.testnet .micro {
+    color: var(--purple-light);
   }
 
   .card-title {
     color: var(--text-head);
-    font-size: 17px;
+    font-family: var(--display);
+    font-size: 19px;
     font-weight: 700;
+    letter-spacing: -0.03em;
   }
 
   .checks {
@@ -345,7 +362,8 @@
     place-items: center;
     width: 16px;
     height: 16px;
-    background: var(--green);
+    border-radius: 5px;
+    background: var(--mint);
     color: #04111f;
     font-size: 11px;
     font-weight: 700;
@@ -361,20 +379,8 @@
   }
 
   .why {
-    color: #fcd34d;
+    color: var(--amber-light);
     font-size: 12px;
-  }
-
-  .callout {
-    padding: 10px 14px;
-    border-left: 2px solid var(--sky);
-    background: rgba(56, 189, 248, 0.06);
-    color: var(--text);
-  }
-
-  .callout.ok {
-    border-color: var(--green);
-    background: rgba(16, 185, 129, 0.07);
   }
 
   .tasks {
@@ -405,8 +411,9 @@
     width: 56px;
     height: 56px;
     margin-top: 12px;
-    background: var(--green);
-    box-shadow: 0 0 40px rgba(16, 185, 129, 0.5);
+    border-radius: 50%;
+    background: var(--mint);
+    box-shadow: 0 0 40px rgba(110, 231, 183, 0.45);
     color: #04111f;
     font-size: 28px;
     font-weight: 700;

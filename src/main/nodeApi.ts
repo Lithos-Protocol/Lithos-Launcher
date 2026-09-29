@@ -2,6 +2,8 @@ export interface WalletStatus {
   isInitialized: boolean
   isUnlocked: boolean
   changeAddress: string
+  /** Last block the wallet scanned. */
+  walletHeight?: number
 }
 
 /** Turns an Ergo ApiError body ({ error, reason, detail }) into a readable message. */
@@ -112,5 +114,10 @@ export class NodeApi {
 
   async walletUnlock(apiKey: string, pass: string): Promise<void> {
     await this.call('POST', '/wallet/unlock', apiKey, { pass })
+  }
+
+  /** Drops the wallet's scanned history and scans the chain again from `fromHeight`, in the background. */
+  async walletRescan(apiKey: string, fromHeight: number): Promise<void> {
+    await this.call('POST', '/wallet/rescan', apiKey, { fromHeight })
   }
 }

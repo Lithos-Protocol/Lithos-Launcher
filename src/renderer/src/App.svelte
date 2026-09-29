@@ -43,34 +43,40 @@
 </script>
 
 <div class="app">
-  <div class="hairline" aria-hidden="true"></div>
-
   <header class="topbar">
     <div class="brand">
       <img class="cube" class:alive={nodeUp} src={cube} alt="" width="40" height="40" />
       <div>
-        <h1>Lithos Launcher</h1>
+        <h1>Lithos<span class="flow-word">Launcher</span></h1>
         <div class="micro">Ergo node · Lithos Client</div>
       </div>
     </div>
 
-    <NetworkSwitch disabled={ui.installing} />
-
     <div class="spacer"></div>
 
-    {#if ui.vault}
-      <div
-        class="keys micro"
-        class:warn={!ui.vault.secure}
-        title={ui.vault.secure
-          ? `Keys are encrypted by your operating system (${ui.vault.backend}).`
-          : 'No system keyring found. Keys are kept in memory for this session only.'}
-      >
-        <span class="square" aria-hidden="true"></span>
-        {ui.vault.secure ? 'Keys · OS encrypted' : 'Keys · Session only'}
+    <div class="controls">
+      <NetworkSwitch disabled={ui.installing} />
+      <div class="row">
+        {#if ui.vault}
+          <div
+            class="keys micro"
+            class:warn={!ui.vault.secure}
+            title={ui.vault.secure
+              ? `Keys are encrypted by your operating system (${ui.vault.backend}).`
+              : 'No system keyring found. Keys are kept in memory for this session only.'}
+          >
+            <span class="dot" aria-hidden="true"></span>
+            {ui.vault.secure ? 'Keys · OS encrypted' : 'Keys · Session only'}
+          </div>
+        {/if}
+        <button class="btn small gear" onclick={() => (ui.dialog = 'settings')}>
+          <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+            <path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4" />
+          </svg>
+          Settings
+        </button>
       </div>
-    {/if}
-    <button class="gear" onclick={() => (ui.dialog = 'settings')} aria-label="Settings" title="Settings">⚙</button>
+    </div>
   </header>
 
   {#if loadError}
@@ -78,10 +84,13 @@
   {/if}
 
   <main>
-    <div class="side">
-      <SetupCard />
-      <NodeCard />
-      <WalletCard />
+    <!-- The frame keeps the column's scrollbar inside a border instead of hanging off the cards. -->
+    <div class="side-frame">
+      <div class="side">
+        <SetupCard />
+        <NodeCard />
+        <WalletCard />
+      </div>
     </div>
     <div class="main-col">
       <ClientCard />
@@ -120,20 +129,11 @@
     height: 100%;
   }
 
-  .hairline {
-    flex: none;
-    height: 3px;
-    background: var(--brand);
-  }
-
   .topbar {
     display: flex;
     align-items: center;
-    gap: 32px;
-    padding: 14px 24px;
-    border-bottom: 1px solid var(--border);
-    background: rgba(6, 9, 19, 0.55);
-    backdrop-filter: blur(8px);
+    gap: 24px;
+    padding: 20px 28px 14px;
   }
 
   .brand {
@@ -145,10 +145,15 @@
   h1 {
     margin: 0;
     color: var(--text-head);
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: 3px;
-    text-transform: uppercase;
+    font-family: var(--display);
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+  }
+
+  .brand .micro {
+    margin-top: 3px;
   }
 
   .cube {
@@ -186,67 +191,80 @@
     flex: 1;
   }
 
+  .controls,
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
   .keys {
     display: flex;
     align-items: center;
-    gap: 8px;
-    color: var(--muted);
+    gap: 7px;
     cursor: default;
   }
 
-  .square {
-    width: 8px;
-    height: 8px;
-    background: var(--green);
+  .keys .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--mint);
+    box-shadow: 0 0 8px rgba(110, 231, 183, 0.5);
   }
 
-  .keys.warn .square {
+  .keys.warn .dot {
     background: var(--amber);
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
   }
 
-  .gear {
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border: 1px solid var(--border-strong);
-    background: transparent;
-    color: var(--muted);
-    font-size: 17px;
-    cursor: pointer;
-  }
-
-  .gear:hover {
-    border-color: rgba(56, 189, 248, 0.45);
-    color: var(--text-head);
+  .gear svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
   }
 
   .load-error {
-    margin: 16px 24px 0;
+    position: relative;
+    margin: 0 24px 12px;
   }
 
   main {
+    position: relative;
     flex: 1;
     display: grid;
-    grid-template-columns: 400px minmax(0, 1fr);
-    gap: 24px;
+    grid-template-columns: 420px minmax(0, 1fr);
+    gap: 20px;
     min-height: 0;
-    padding: 24px;
+    padding: 6px 24px 24px;
   }
 
   .main-col {
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 20px;
     min-width: 0;
     min-height: 0;
   }
 
+  /* A recessed tray for the stacked cards; the scrollbar lives in its right edge. */
+  .side-frame {
+    display: flex;
+    min-height: 0;
+    padding: 10px 2px 10px 10px;
+    border: 1px solid var(--border);
+    border-radius: 26px;
+    background: rgba(4, 6, 13, 0.55);
+  }
+
   .side {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 12px;
     min-height: 0;
     overflow-y: auto;
+    scrollbar-gutter: stable;
   }
 </style>

@@ -14,20 +14,30 @@
 </script>
 
 <section class="panel logs" aria-label="Process output">
-  <div class="tabs" role="tablist">
-    <button role="tab" aria-selected={tab === 'node'} class:active={tab === 'node'} onclick={() => (tab = 'node')}>
-      <StatusDot status={ui.node.status} size={7} />
-      Ergo node
-    </button>
-    <button
-      role="tab"
-      aria-selected={tab === 'client'}
-      class:active={tab === 'client'}
-      onclick={() => (tab = 'client')}
-    >
-      <StatusDot status={ui.client.status} size={7} />
-      Lithos Client
-    </button>
+  <div class="panel-head">
+    <h2 class="card-title">Console</h2>
+    <div class="tabs" role="tablist">
+      <button
+        role="tab"
+        class="network"
+        aria-selected={tab === 'node'}
+        class:active={tab === 'node'}
+        onclick={() => (tab = 'node')}
+      >
+        <StatusDot status={ui.node.status} size={7} />
+        Ergo node
+      </button>
+      <button
+        role="tab"
+        class="lithos"
+        aria-selected={tab === 'client'}
+        class:active={tab === 'client'}
+        onclick={() => (tab = 'client')}
+      >
+        <StatusDot status={ui.client.status} size={7} />
+        Lithos Client
+      </button>
+    </div>
     <span class="spacer"></span>
     <span class="micro count">{lines[tab].toLocaleString('en-US')} lines</span>
   </div>
@@ -52,62 +62,67 @@
     min-height: 0;
   }
 
+  .panel-head {
+    justify-content: flex-start;
+    gap: 16px;
+  }
+
+  /* The Mining page's segmented control: a pill track, the chosen tab lit in its role's colour. */
   .tabs {
-    display: flex;
-    align-items: stretch;
-    border-bottom: 1px solid var(--border);
-    padding: 0 8px;
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid rgba(125, 211, 252, 0.12);
+    border-radius: 999px;
+    background: rgba(10, 15, 30, 0.7);
   }
 
   [role='tab'] {
-    position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 14px 16px 12px;
+    gap: 7px;
+    padding: 5px 13px;
     border: none;
-    background: none;
+    border-radius: 999px;
+    background: transparent;
     color: var(--dim);
     font-family: var(--mono);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
     cursor: pointer;
+    transition:
+      color 0.15s,
+      background 0.15s;
   }
 
   [role='tab']:hover {
-    color: var(--text);
+    color: var(--sky-light);
   }
 
-  [role='tab'].active {
-    color: var(--text-head);
+  [role='tab'].network.active {
+    background: rgba(56, 189, 248, 0.16);
+    color: var(--sky-light);
+    font-weight: 600;
   }
 
-  [role='tab'].active::after {
-    content: '';
-    position: absolute;
-    left: 12px;
-    right: 12px;
-    bottom: -1px;
-    height: 2px;
-    background: var(--brand);
+  [role='tab'].lithos.active {
+    background: rgba(168, 85, 247, 0.18);
+    color: var(--purple-light);
+    font-weight: 600;
   }
 
   .spacer {
     flex: 1;
   }
 
-  .count {
-    align-self: center;
-    padding-right: 12px;
-  }
-
   .screen {
     position: relative;
     flex: 1;
     min-height: 0;
-    background: #070b16;
+    margin: 0 12px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #050811;
   }
 
   .empty {

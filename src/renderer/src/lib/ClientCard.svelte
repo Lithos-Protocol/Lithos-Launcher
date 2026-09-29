@@ -20,7 +20,7 @@
     crashed: 'Stopped unexpectedly'
   }
 
-  let copied = $state(false)
+  let copied = $state<string | null>(null)
 
   const status = $derived(ui.client.status)
   const active = $derived(status === 'starting' || status === 'running' || status === 'stopping')
@@ -31,20 +31,30 @@
   const settings = $derived(ui.clientSettings)
   const stats = $derived(running ? ui.clientStats : null)
 
+  const lanHost = $derived(ui.lanAddresses[0] ?? null)
   const stratumPort = $derived(ui.client.ports?.stratum ?? null)
-  const stratumUrl = $derived(stratumPort ? `stratum+tcp://${ui.lanAddresses[0] ?? '127.0.0.1'}:${stratumPort}` : null)
+  const stratumUrl = $derived(stratumPort ? `stratum+tcp://${lanHost ?? '127.0.0.1'}:${stratumPort}` : null)
+  const httpPort = $derived(ui.client.ports?.http ?? null)
+  const lanPanelUrl = $derived(settings?.lanPanel && lanHost && httpPort ? `http://${lanHost}:${httpPort}/` : null)
 
+  const hashrate = $derived(stats?.hashesPerSecond ? fmtHashrate(stats.hashesPerSecond).split(' ') : null)
   const score = (s: string | null): string => (s ? fmtConfigDiff(Number(s)) : '—')
 
-  /** One line on where the on-chain commitment stands. */
-  const commitment = $derived.by((): { text: string; ok: boolean } => {
+  /** Where the on-chain commitment stands: a headline figure and one line under it. */
+  const commitment = $derived.by((): { value: string; text: string; ok: boolean } => {
     if (stats?.committed && stats.pending) {
-      return { text: `${score(stats.committed)} on chain, ${score(stats.pending)} from block ${stats.pendingFromHeight ?? '?'}`, ok: true }
+      return {
+        value: score(stats.committed),
+        text: `${score(stats.pending)} from block ${stats.pendingFromHeight ?? '?'}`,
+        ok: true
+      }
     }
-    if (stats?.committed) return { text: `${score(stats.committed)} committed on chain`, ok: true }
-    if (stats?.pending) return { text: `${score(stats.pending)} takes effect at block ${stats.pendingFromHeight ?? '?'}`, ok: false }
-    if (settings?.autoCommit) return { text: running ? 'Auto-commit on, registering…' : 'Auto-commit on', ok: false }
-    return { text: 'Not committed', ok: false }
+    if (stats?.committed) return { value: score(stats.committed), text: 'Committed on chain', ok: true }
+    if (stats?.pending) {
+      return { value: score(stats.pending), text: `Takes effect at block ${stats.pendingFromHeight ?? '?'}`, ok: false }
+    }
+    if (settings?.autoCommit) return { value: '—', text: running ? 'Auto-commit on, registering…' : 'Auto-commit on', ok: false }
+    return { value: '—', text: 'Not committed', ok: false }
   })
 
   /** The few things a newcomer must act on, instead of reading warnings in the log. */
@@ -67,17 +77,18 @@
     return list
   })
 
-  async function copyStratum(): Promise<void> {
-    if (!stratumUrl) return
-    await copyText(stratumUrl)
-    copied = true
-    setTimeout(() => (copied = false), 1500)
+  async function copy(text: string): Promise<void> {
+    await copyText(text)
+    copied = text
+    setTimeout(() => (copied = null), 1500)
   }
 </script>
 
 <section class="panel" aria-labelledby="client-title">
   <div class="panel-head">
-    <span class="micro" id="client-title">04 · Lithos Client</span>
+    <h2 class="card-title" id="client-title">
+      <span class="swatch lithos" aria-hidden="true"></span>Lithos Client<span class="no">04</span>
+    </h2>
     <div class="head-right">
       <label class="check small">
         <input
@@ -92,72 +103,97 @@
   </div>
 
   <div class="body">
-    <div class="status">
-      <StatusDot {status} size={12} />
-      <div>
-        <div class="status-text">{STATUS_TEXT[status]}</div>
-        {#if ui.client.detail}
-          <div class="detail">{ui.client.detail}</div>
+    <div class="top">
+      <div class="status">
+        <StatusDot {status} size={10} />
+        <div>
+          <div class="status-text">{STATUS_TEXT[status]}</div>
+          {#if ui.client.detail}
+            <div class="detail">{ui.client.detail}</div>
+          {/if}
+        </div>
+      </div>
+      <div class="actions">
+        {#if active}
+          <button class="btn danger" onclick={stopClient} disabled={status === 'stopping'}>
+            {status === 'stopping' ? 'Stopping…' : 'Stop client'}
+          </button>
+        {:else}
+          <button class="btn primary" onclick={startClient} disabled={!ready}>Start client</button>
         {/if}
+        <button class="btn" onclick={openLithosPanel} disabled={!running}>Lithos panel ↗</button>
       </div>
     </div>
 
-    <div class="actions">
-      {#if active}
-        <button class="btn danger" onclick={stopClient} disabled={status === 'stopping'}>
-          {status === 'stopping' ? 'Stopping…' : 'Stop client'}
-        </button>
-      {:else}
-        <button class="btn primary" onclick={startClient} disabled={!ready}>Start client</button>
-      {/if}
-      <button class="btn" onclick={openLithosPanel} disabled={!running}>Lithos panel ↗</button>
-    </div>
+    {#if running}
+      <div class="tiles">
+        <div class="tile">
+          <span class="tile-name"><span class="swatch you" aria-hidden="true"></span>Your hashrate</span>
+          <span class="tile-value num">
+            {#if hashrate}{hashrate[0]}<span class="unit you">{hashrate[1]}</span>{:else}—{/if}
+          </span>
+          <span class="tile-sub">
+            {stats?.rigs ?? 0} rig{stats?.rigs === 1 ? '' : 's'} connected ·
+            <button class="link" onclick={() => (ui.dialog = 'miner')}>Connect a miner</button>
+          </span>
+        </div>
+        <div class="tile">
+          <span class="tile-name"><span class="swatch lithos" aria-hidden="true"></span>Super shares</span>
+          <span class="tile-value num"><span class="flow-word">{stats?.superShares ?? 0}</span></span>
+          <span class="tile-sub">
+            {stats?.superSharesPerHour ? `${stats.superSharesPerHour.toFixed(1)} per hour` : 'this session'}
+          </span>
+        </div>
+        <div class="tile">
+          <span class="tile-name"><span class="swatch network" aria-hidden="true"></span>Commitment</span>
+          <span class="tile-value num">{commitment.value}</span>
+          <span class="tile-sub" class:ok={commitment.ok} class:warn={!commitment.ok}>
+            {commitment.text} ·
+            <button class="link" onclick={() => (ui.dialog = 'commit')}>
+              {settings?.autoCommit ? 'Details' : 'Commit…'}
+            </button>
+          </span>
+        </div>
+      </div>
+    {/if}
 
-    <div class="mining info">
+    <div class="chips">
       <div class="chip">
         <span class="micro">Difficulty</span>
-        <span class="mono val">{settings?.diff ?? 'not set'}</span>
+        <span class="val num">{settings?.diff ?? 'not set'}</span>
         <button class="link micro" onclick={() => (ui.dialog = 'difficulty')}>{settings?.diff ? 'Change' : 'Choose'}</button>
       </div>
       <div class="chip">
         <span class="micro">Share reporting</span>
-        <span class="mono val">{(settings?.reductionMultiplier ?? DEFAULT_REDUCTION_MULTIPLIER).toLocaleString('en-US')}×</span>
+        <span class="val num">{(settings?.reductionMultiplier ?? DEFAULT_REDUCTION_MULTIPLIER).toLocaleString('en-US')}×</span>
         <button class="link micro" onclick={() => (ui.dialog = 'shares')}>Adjust</button>
       </div>
-      <div class="chip">
-        <span class="micro">Commitment</span>
-        <span class="val" class:ok={commitment.ok} class:warn={!commitment.ok}>{commitment.text}</span>
-        <button class="link micro" onclick={() => (ui.dialog = 'commit')}>
-          {settings?.autoCommit ? 'Details' : 'Commit…'}
-        </button>
-      </div>
-      {#if running}
+      {#if !running}
         <div class="chip">
-          <span class="micro">Rigs</span>
-          <span class="mono val">{stats?.rigs ?? 0}</span>
-          <button class="link micro" onclick={() => (ui.dialog = 'miner')}>Connect a miner</button>
-        </div>
-        <div class="chip">
-          <span class="micro">Hashrate</span>
-          <span class="mono val">{stats?.hashesPerSecond ? fmtHashrate(stats.hashesPerSecond) : '—'}</span>
-        </div>
-        <div class="chip">
-          <span class="micro">Super shares</span>
-          <span class="mono val">
-            {stats?.superShares ?? 0}{stats?.superSharesPerHour ? ` · ${stats.superSharesPerHour.toFixed(1)}/h` : ''}
-          </span>
+          <span class="micro">Commitment</span>
+          <span class="val" class:ok={commitment.ok} class:warn={!commitment.ok}>{commitment.text}</span>
+          <button class="link micro" onclick={() => (ui.dialog = 'commit')}>
+            {settings?.autoCommit ? 'Details' : 'Commit…'}
+          </button>
         </div>
       {/if}
     </div>
 
     {#if running && stratumUrl}
-      <div class="endpoint info">
+      <div class="endpoint well">
         <span class="micro">Stratum</span>
         <code class="mono" title={ui.lanAddresses.join(', ')}>{stratumUrl}</code>
-        <button class="btn small" onclick={copyStratum}>{copied ? 'Copied' : 'Copy'}</button>
+        <button class="btn small" onclick={() => copy(stratumUrl!)}>{copied === stratumUrl ? 'Copied' : 'Copy'}</button>
       </div>
+      {#if lanPanelUrl}
+        <div class="endpoint well">
+          <span class="micro">Panel on LAN</span>
+          <code class="mono lan">{lanPanelUrl}</code>
+          <button class="btn small" onclick={() => copy(lanPanelUrl!)}>{copied === lanPanelUrl ? 'Copied' : 'Copy'}</button>
+        </div>
+      {/if}
     {:else if !active}
-      <ul class="reqs info" aria-label="Requirements">
+      <ul class="reqs" aria-label="Requirements">
         {#each requirements as r (r.label)}
           <li class:ok={r.ok}>
             <span class="tick" aria-hidden="true">{r.ok ? '✓' : ''}</span>
@@ -170,7 +206,7 @@
     {/if}
 
     {#if warnings.length}
-      <ul class="warnings info">
+      <ul class="warnings warn-note">
         {#each warnings as w (w)}<li>{w}</li>{/each}
       </ul>
     {/if}
@@ -192,98 +228,153 @@
     font-size: 11.5px;
   }
 
-  .net {
-    padding: 2px 8px;
-    border: 1px solid;
-  }
-
-  .net.mainnet {
-    color: var(--sky);
-    border-color: rgba(56, 189, 248, 0.35);
-  }
-
-  .net.testnet {
-    color: var(--purple-light);
-    border-color: rgba(168, 85, 247, 0.4);
-  }
-
   .body {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 12px 24px;
-    padding: 0 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0 20px 18px;
   }
 
-  .info {
-    grid-column: 1 / -1;
+  .top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 24px;
+    flex-wrap: wrap;
   }
 
   .status {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 14px;
-  }
-
-  .status :global(.dot) {
-    margin-top: 7px;
   }
 
   .status-text {
     color: var(--text-head);
-    font-size: 18px;
+    font-family: var(--display);
+    font-size: 21px;
     font-weight: 700;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
   }
 
   .detail {
+    margin-top: 2px;
     color: var(--muted);
     font-size: 12px;
   }
 
   .actions {
     display: flex;
-    gap: 12px;
+    gap: 10px;
   }
 
-  .mining {
+  /* Live figures as Mining-page stat tiles, each marked with its colour role. */
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .tile {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--well);
+  }
+
+  .tile-name {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .tile-name .swatch {
+    width: 8px;
+    height: 8px;
+    box-shadow: none;
+  }
+
+  .tile-value {
+    color: var(--text-head);
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    white-space: nowrap;
+  }
+
+  .unit {
+    margin-left: 4px;
+    font-size: 0.45em;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  .unit.you {
+    color: var(--amber-light);
+  }
+
+  .tile-sub {
+    color: var(--faint);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .tile-sub .link {
+    font-size: 11px;
+  }
+
+  .ok {
+    color: var(--mint);
+  }
+
+  .warn {
+    color: var(--amber-light);
+  }
+
+  .chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
   }
 
   .chip {
     display: flex;
     align-items: baseline;
     gap: 8px;
-    padding: 6px 10px;
-    border: 1px solid var(--border);
-    background: var(--bg-deep);
+    padding: 5px 10px;
+    border: 1px solid rgba(125, 211, 252, 0.12);
+    border-radius: var(--radius-sm);
+    background: rgba(10, 15, 30, 0.6);
     font-size: 12px;
+  }
+
+  .chip .micro {
+    font-size: 9.5px;
   }
 
   .val {
     color: var(--text-head);
+    font-weight: 600;
   }
 
   .val.ok {
-    color: #6ee7b7;
+    color: var(--mint);
   }
 
   .val.warn {
-    color: #fcd34d;
-  }
-
-  .link {
-    border: none;
-    background: none;
-    padding: 0;
-    color: var(--sky);
-    cursor: pointer;
-  }
-
-  .link:hover {
-    color: var(--sky-light);
+    color: var(--amber-light);
   }
 
   .reqs {
@@ -311,17 +402,18 @@
   .tick {
     display: grid;
     place-items: center;
-    width: 14px;
-    height: 14px;
+    width: 15px;
+    height: 15px;
     border: 1px solid var(--border-strong);
+    border-radius: 5px;
     color: #04111f;
     font-size: 10px;
     font-weight: 700;
   }
 
   .ok .tick {
-    border-color: var(--green);
-    background: var(--green);
+    border-color: var(--mint);
+    background: var(--mint);
   }
 
   .req-note {
@@ -332,12 +424,10 @@
 
   .endpoint {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: 96px minmax(0, 1fr) auto;
     align-items: center;
     gap: 12px;
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-    background: var(--bg-deep);
+    padding: 7px 8px 7px 12px;
   }
 
   code {
@@ -348,13 +438,12 @@
     white-space: nowrap;
   }
 
+  code.lan {
+    color: var(--purple-light);
+  }
+
   .warnings {
-    margin: 0;
-    padding: 8px 12px 8px 28px;
-    border-left: 2px solid var(--amber);
-    background: rgba(245, 158, 11, 0.07);
-    color: var(--text);
-    font-size: 12px;
+    padding-left: 28px;
   }
 
   .warnings li + li {
@@ -363,14 +452,5 @@
 
   .client-error {
     margin: 0 20px 18px;
-  }
-
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
   }
 </style>

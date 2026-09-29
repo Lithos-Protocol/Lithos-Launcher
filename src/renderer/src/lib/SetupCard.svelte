@@ -57,20 +57,18 @@
 
 <section class="panel" aria-labelledby="setup-title">
   <div class="panel-head">
-    <span class="micro" id="setup-title">01 · Setup</span>
-    <button class="link micro" onclick={openFolder} title={ui.net?.folder}>Open folder ↗</button>
+    <h2 class="card-title" id="setup-title"><span class="swatch" aria-hidden="true"></span>Setup<span class="no">01</span></h2>
+    <button class="btn small" onclick={openFolder} title={ui.net?.folder}>Open folder ↗</button>
   </div>
 
   {#if compact}
     <div class="ready" role="status">
       <span class="tick" aria-hidden="true">✓</span>
-      <div>
-        <div class="ready-title">Everything installed</div>
-        <div class="sub mono versions">
-          <span>Java {ui.net?.java.version}</span>
-          <span>Ergo {ui.net?.node.version}</span>
-          <span>Lithos {ui.net?.client.version}</span>
-        </div>
+      <span class="ready-title">Everything installed</span>
+      <div class="versions">
+        <span class="chip"><span class="micro">Java</span><span class="num">{ui.net?.java.version}</span></span>
+        <span class="chip"><span class="micro">Ergo</span><span class="num">{ui.net?.node.version}</span></span>
+        <span class="chip"><span class="micro">Lithos</span><span class="num">{ui.net?.client.version}</span></span>
       </div>
     </div>
   {:else}
@@ -113,22 +111,11 @@
 </section>
 
 <style>
-  .link {
-    border: none;
-    background: none;
-    padding: 0;
-    color: var(--sky);
-    cursor: pointer;
-  }
-
-  .link:hover {
-    color: var(--sky-light);
-  }
-
   .ready {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 14px;
+    gap: 8px 10px;
     padding: 0 20px 16px;
   }
 
@@ -137,25 +124,42 @@
     place-items: center;
     width: 20px;
     height: 20px;
-    background: var(--green);
+    border-radius: 6px;
+    background: var(--mint);
     color: #04111f;
     font-size: 12px;
     font-weight: 700;
   }
 
-  .versions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0 12px;
-  }
-
-  .versions span {
-    white-space: nowrap;
-  }
-
   .ready-title {
     color: var(--text-head);
     font-weight: 600;
+  }
+
+  .versions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+  }
+
+  /* Mining-page chip: a small rounded well with a mono label and a figure. */
+  .chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 4px 9px;
+    border: 1px solid rgba(125, 211, 252, 0.12);
+    border-radius: var(--radius-sm);
+    background: rgba(10, 15, 30, 0.6);
+    color: var(--text-head);
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .chip .micro {
+    font-size: 9.5px;
   }
 
   .steps {
@@ -179,14 +183,15 @@
     height: 20px;
     margin-top: 1px;
     border: 1px solid var(--border-strong);
+    border-radius: 6px;
     color: #04111f;
     font-size: 12px;
     font-weight: 700;
   }
 
   .done .marker {
-    border-color: var(--green);
-    background: var(--green);
+    border-color: var(--mint);
+    background: var(--mint);
   }
 
   .active .marker {

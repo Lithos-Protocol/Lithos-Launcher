@@ -16,6 +16,7 @@ export const CLIENT_ENV = {
 } as const
 
 const KEYS = {
+  httpAddress: 'play.server.http.address',
   httpPort: 'play.server.http.port',
   stratumPort: 'stratum.stratumPort',
   diff: 'stratum.diff',
@@ -23,6 +24,9 @@ const KEYS = {
   forceConfigDiff: 'stratum.forceConfigDiff',
   reductionMultiplier: 'stratum.reductionMultiplier'
 } as const
+
+const LOCAL_ADDRESS = '127.0.0.1'
+const ALL_ADDRESSES = '0.0.0.0'
 
 function parseQuoted(raw: string | null): string | null {
   if (raw === null) return null
@@ -43,7 +47,8 @@ export async function readClientSettings(root: string, network: Network): Promis
     forceConfigDiff: (await readManagedValue(file, KEYS.forceConfigDiff)) === 'true',
     httpPort: (await readManagedNumber(file, KEYS.httpPort)) ?? CLIENT_DEFAULT_PORTS.http,
     stratumPort: (await readManagedNumber(file, KEYS.stratumPort)) ?? CLIENT_DEFAULT_PORTS.stratum,
-    reductionMultiplier: (await readManagedNumber(file, KEYS.reductionMultiplier)) ?? DEFAULT_REDUCTION_MULTIPLIER
+    reductionMultiplier: (await readManagedNumber(file, KEYS.reductionMultiplier)) ?? DEFAULT_REDUCTION_MULTIPLIER,
+    lanPanel: parseQuoted(await readManagedValue(file, KEYS.httpAddress)) === ALL_ADDRESSES
   }
 }
 
@@ -85,6 +90,9 @@ export async function updateClientSettings(
     }
     entries[KEYS.reductionMultiplier] = String(patch.reductionMultiplier)
   }
+  if (patch.lanPanel !== undefined) {
+    entries[KEYS.httpAddress] = JSON.stringify(patch.lanPanel ? ALL_ADDRESSES : LOCAL_ADDRESS)
+  }
   await mkdir(layout.clientDir(root, network), { recursive: true })
   await updateManagedLines(layout.clientConf(root, network), entries)
   return readClientSettings(root, network)
@@ -96,6 +104,17 @@ interface ClientConf {
   keystore: string
   lithosApiKeyHash: string
   settings: ClientSettings
+  /** This machine's LAN addresses and host name, accepted as Host headers while the panel is on the LAN. */
+  lanHosts: string[]
+}
+
+/**
+ * Play's allowed-hosts filter answers 400 to any Host header outside its list, which by default is
+ * only localhost. Naming this machine's own addresses (rather than allowing every host) keeps the
+ * filter's protection against DNS rebinding.
+ */
+function allowedHosts(lanHosts: string[]): string[] {
+  return [...new Set(['localhost', LOCAL_ADDRESS, '.local', ...lanHosts.map((h) => h.toLowerCase())])]
 }
 
 /**
@@ -121,12 +140,13 @@ function clientBlock(c: ClientConf): string[] {
     '}',
     `play.http.secret.key = ${env(CLIENT_ENV.playSecret)}`,
     `lithos.apiKeyHash = ${q(c.lithosApiKeyHash)}`,
-    // Play listens on 0.0.0.0 by default; keep the panel and API on this machine.
-    // Stratum has no bind setting and listens on all interfaces, which rigs on the LAN need.
-    'play.server.http.address = "127.0.0.1"',
+    // Play listens on 0.0.0.0 by default. The panel stays on this machine unless the user opens it
+    // to the LAN. Stratum has no bind setting and always listens on all interfaces, which rigs need.
+    `${KEYS.httpAddress} = ${q(s.lanPanel ? ALL_ADDRESSES : LOCAL_ADDRESS)}`,
     `${KEYS.httpPort} = ${s.httpPort}`,
     `${KEYS.stratumPort} = ${s.stratumPort}`
   ]
+  if (s.lanPanel) lines.push(`play.filters.hosts.allowed = ${q(allowedHosts(c.lanHosts))}`)
   if (s.diff) lines.push(`${KEYS.diff} = ${q(s.diff)}`)
   lines.push('stratum.reduceShareMessages = true', `${KEYS.reductionMultiplier} = ${s.reductionMultiplier}`)
   // Registration and commitment are on-chain and lock the difficulty for 845 blocks: opt-in only.
