@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import type { Network, NodeInfo } from '@shared/types'
 import { detectErgo } from './ergo'
 import { HELLO_HASH, HELLO_KEY, writeNodeConf } from './ergoConf'
+import { interrupt } from './interrupt'
 import { detectJre } from './java'
 import { heapPlan, javaEnv, layout, NODE_API_PORT } from './layout'
 import { NodeApi } from './nodeApi'
@@ -186,9 +187,10 @@ export class NodeController extends EventEmitter {
         this.proc.log(`Shutdown request failed: ${errorMessage(err)}`)
       }
     }
-    if (!requested && process.platform !== 'win32') {
-      this.proc.kill('SIGTERM') // the JVM still runs its shutdown hooks
-      requested = true
+    if (!requested) {
+      // Ctrl+C on Windows / SIGTERM on Linux: the JVM still runs its shutdown hooks.
+      const pid = this.proc.state.pid
+      requested = pid !== null && (await interrupt(pid))
     }
     if (requested && (await this.proc.waitForExit(SHUTDOWN_TIMEOUT_MS))) return
     this.proc.log('The node did not stop in time; forcing it to close')

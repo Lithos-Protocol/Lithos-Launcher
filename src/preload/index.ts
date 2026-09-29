@@ -10,7 +10,7 @@ function subscribe<T>(channel: string, cb: (value: T) => void): () => void {
 // The renderer gets these named calls only; no raw ipcRenderer, no Node APIs.
 const api: LauncherApi = {
   getState: (network) => ipcRenderer.invoke(IPC.getState, network),
-  getVaultInfo: () => ipcRenderer.invoke(IPC.getVaultInfo),
+  getAppInfo: () => ipcRenderer.invoke(IPC.getAppInfo),
   install: (network) => ipcRenderer.invoke(IPC.install, network),
   startNode: (network) => ipcRenderer.invoke(IPC.startNode, network),
   stopNode: () => ipcRenderer.invoke(IPC.stopNode),
@@ -19,6 +19,9 @@ const api: LauncherApi = {
   getNodeInfo: () => ipcRenderer.invoke(IPC.getNodeInfo),
   openNodePanel: () => ipcRenderer.invoke(IPC.openNodePanel),
   openFolder: (network) => ipcRenderer.invoke(IPC.openFolder, network),
+  startClient: (network) => ipcRenderer.invoke(IPC.startClient, network),
+  stopClient: () => ipcRenderer.invoke(IPC.stopClient),
+  openLithosPanel: () => ipcRenderer.invoke(IPC.openLithosPanel),
   getWallet: () => ipcRenderer.invoke(IPC.getWallet),
   createWallet: (password) => ipcRenderer.invoke(IPC.createWallet, password),
   restoreWallet: (mnemonic, password) => ipcRenderer.invoke(IPC.restoreWallet, mnemonic, password),

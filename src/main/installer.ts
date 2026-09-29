@@ -3,6 +3,7 @@ import { detectErgo, installErgo } from './ergo'
 import { HELLO_HASH, writeNodeConf } from './ergoConf'
 import { detectJre, installJre } from './java'
 import { layout, NODE_API_PORT } from './layout'
+import { detectClient, installClient } from './lithosClient'
 import { errorMessage } from './util'
 import type { Vault } from './vault'
 
@@ -17,12 +18,17 @@ export class Installer {
   ) {}
 
   async state(network: Network): Promise<NetworkState> {
-    const [java, ergo] = await Promise.all([detectJre(this.root), detectErgo(layout.nodeDir(this.root, network))])
+    const [java, ergo, client] = await Promise.all([
+      detectJre(this.root),
+      detectErgo(layout.nodeDir(this.root, network)),
+      detectClient(layout.clientDir(this.root, network))
+    ])
     return {
       network,
       folder: layout.netDir(this.root, network),
       java: { installed: java !== null, version: java },
-      node: { installed: ergo !== null, version: ergo?.version ?? null, apiPort: NODE_API_PORT[network] }
+      node: { installed: ergo !== null, version: ergo?.version ?? null, apiPort: NODE_API_PORT[network] },
+      client: { installed: client !== null, version: client?.version ?? null }
     }
   }
 
@@ -38,6 +44,10 @@ export class Installer {
         await this.run('node', () => installErgo(nodeDir, this.emit))
       }
       await writeNodeConf(this.root, network, this.vault.getNodeKey(network)?.hash ?? HELLO_HASH)
+      const clientDir = layout.clientDir(this.root, network)
+      if (!(await detectClient(clientDir))) {
+        await this.run('client', () => installClient(clientDir, network, this.emit))
+      }
       return await this.state(network)
     } finally {
       this.busy = false

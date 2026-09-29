@@ -18,10 +18,18 @@ export const layout = {
   netDir: (root: string, net: Network) => join(root, net),
   nodeDir: (root: string, net: Network) => join(root, net, 'node'),
   nodeDataDir: (root: string, net: Network) => join(root, net, 'node', '.ergo'),
-  ergoConf: (root: string, net: Network) => join(root, net, 'node', 'ergo.conf')
+  ergoConf: (root: string, net: Network) => join(root, net, 'node', 'ergo.conf'),
+  keystoreDir: (root: string, net: Network) => join(root, net, 'node', '.ergo', 'wallet', 'keystore'),
+  /**
+   * The client's working directory: lithos.conf, .lithos/ data and logs/ live here, while each
+   * release unpacks into its own lithos-client-<version>/ subfolder, so updates keep the data.
+   */
+  clientDir: (root: string, net: Network) => join(root, net, 'client'),
+  clientConf: (root: string, net: Network) => join(root, net, 'client', 'lithos.conf')
 }
 
 export const NODE_API_PORT: Record<Network, number> = { mainnet: 9053, testnet: 9052 }
+export const CLIENT_DEFAULT_PORTS = { http: 9000, stratum: 4444 }
 
 /** JVM heap limits sized from system RAM. Starting points; tune with real usage. */
 export function heapPlan(totalBytes = totalmem()): { nodeMb: number; clientMb: number } {

@@ -22,6 +22,7 @@ export interface NetworkState {
   folder: string
   java: ComponentState
   node: ComponentState & { apiPort: number }
+  client: ComponentState
 }
 
 export interface ProcState {
@@ -32,6 +33,8 @@ export interface ProcState {
   exitCode: number | null
   /** Short human-readable detail, e.g. "Waiting for the node API". */
   detail: string | null
+  /** Ports the process listens on while running, e.g. { http: 9000, stratum: 4444 }. */
+  ports: Record<string, number> | null
 }
 
 export interface NodeInfo {
@@ -60,7 +63,7 @@ export interface WalletState {
 export const MNEMONIC_LENGTHS = [12, 15, 18, 21, 24] as const
 export const MIN_PASSWORD_LENGTH = 8
 
-export type TaskId = 'java' | 'node'
+export type TaskId = 'java' | 'node' | 'client'
 export type TaskPhase = 'resolving' | 'downloading' | 'extracting' | 'done' | 'error'
 
 export interface TaskProgress {
@@ -84,9 +87,17 @@ export interface VaultInfo {
   backend: string
 }
 
+export interface AppInfo {
+  vault: VaultInfo
+  /** Development only: allow starting the client before the node is synced. */
+  skipSyncGate: boolean
+  /** This machine's LAN IPv4 addresses, for pointing mining rigs at the stratum port. */
+  lanAddresses: string[]
+}
+
 export interface LauncherApi {
   getState(network: Network): Promise<NetworkState>
-  getVaultInfo(): Promise<VaultInfo>
+  getAppInfo(): Promise<AppInfo>
   install(network: Network): Promise<NetworkState>
   startNode(network: Network): Promise<void>
   stopNode(): Promise<void>
@@ -95,6 +106,9 @@ export interface LauncherApi {
   getNodeInfo(): Promise<NodeInfo | null>
   openNodePanel(): Promise<void>
   openFolder(network: Network): Promise<void>
+  startClient(network: Network): Promise<void>
+  stopClient(): Promise<void>
+  openLithosPanel(): Promise<void>
   getWallet(): Promise<WalletState>
   /** Creates the node wallet and returns its seed words. They are shown once and never stored. */
   createWallet(password: string): Promise<string[]>
@@ -113,7 +127,7 @@ export interface LauncherApi {
 
 export const IPC = {
   getState: 'launcher:get-state',
-  getVaultInfo: 'launcher:get-vault-info',
+  getAppInfo: 'launcher:get-app-info',
   install: 'launcher:install',
   startNode: 'node:start',
   stopNode: 'node:stop',
@@ -122,6 +136,9 @@ export const IPC = {
   getNodeInfo: 'node:get-info',
   openNodePanel: 'node:open-panel',
   openFolder: 'launcher:open-folder',
+  startClient: 'client:start',
+  stopClient: 'client:stop',
+  openLithosPanel: 'client:open-panel',
   getWallet: 'wallet:get',
   createWallet: 'wallet:create',
   restoreWallet: 'wallet:restore',

@@ -5,7 +5,12 @@
   import { ui } from './store.svelte'
 
   let tab = $state<ProcId>('node')
-  let nodeLines = $state(0)
+  let lines = $state<Record<ProcId, number>>({ node: 0, client: 0 })
+
+  const EMPTY: Record<ProcId, string> = {
+    node: "The node's console output appears here once it starts.",
+    client: "The Lithos Client's console output appears here once it starts."
+  }
 </script>
 
 <section class="panel logs" aria-label="Process output">
@@ -20,26 +25,20 @@
       class:active={tab === 'client'}
       onclick={() => (tab = 'client')}
     >
-      <StatusDot status="stopped" size={7} />
+      <StatusDot status={ui.client.status} size={7} />
       Lithos Client
     </button>
     <span class="spacer"></span>
-    {#if tab === 'node'}
-      <span class="micro count">{nodeLines.toLocaleString('en-US')} lines</span>
-    {/if}
+    <span class="micro count">{lines[tab].toLocaleString('en-US')} lines</span>
   </div>
 
   <div class="screen">
-    <Terminal proc="node" visible={tab === 'node'} onlines={(n) => (nodeLines = n)} />
-    {#if tab === 'node' && nodeLines === 0}
+    <Terminal proc="node" visible={tab === 'node'} onlines={(n) => (lines.node = n)} />
+    <Terminal proc="client" visible={tab === 'client'} onlines={(n) => (lines.client = n)} />
+    {#if lines[tab] === 0}
       <div class="empty">
         <span class="micro">No output yet</span>
-        <p>The node's console output appears here once it starts.</p>
-      </div>
-    {:else if tab === 'client'}
-      <div class="empty">
-        <span class="micro">Not set up</span>
-        <p>The Lithos Client's console output will appear here.</p>
+        <p>{EMPTY[tab]}</p>
       </div>
     {/if}
   </div>

@@ -14,9 +14,13 @@ interface VaultData {
   v: 1
   nodeKeys: Partial<Record<Network, NodeKey>>
   walletPasswords: Partial<Record<Network, string>>
+  /** Key for the Lithos Client's own API (and its hash for lithos.conf). */
+  lithosKeys: Partial<Record<Network, NodeKey>>
+  /** Play's application secret for the Lithos Client. */
+  playSecrets: Partial<Record<Network, string>>
 }
 
-const empty = (): VaultData => ({ v: 1, nodeKeys: {}, walletPasswords: {} })
+const empty = (): VaultData => ({ v: 1, nodeKeys: {}, walletPasswords: {}, lithosKeys: {}, playSecrets: {} })
 
 /**
  * Secrets encrypted with the OS (DPAPI on Windows, libsecret/KWallet on Linux).
@@ -49,7 +53,7 @@ export class Vault {
     try {
       const parsed = JSON.parse(safeStorage.decryptString(blob)) as Partial<VaultData>
       if (parsed.v === 1) {
-        this.data = { v: 1, nodeKeys: parsed.nodeKeys ?? {}, walletPasswords: parsed.walletPasswords ?? {} }
+        this.data = { ...empty(), ...parsed, v: 1 }
       }
     } catch {
       // Unreadable (e.g. OS profile changed). Start fresh: node keys are re-issued, wallet passwords re-asked.
@@ -79,6 +83,24 @@ export class Vault {
       this.sessionPasswords[network] = password
       delete this.data.walletPasswords[network]
     }
+    await this.persist()
+  }
+
+  getLithosKey(network: Network): NodeKey | null {
+    return this.data.lithosKeys[network] ?? null
+  }
+
+  async setLithosKey(network: Network, key: NodeKey): Promise<void> {
+    this.data.lithosKeys[network] = key
+    await this.persist()
+  }
+
+  getPlaySecret(network: Network): string | null {
+    return this.data.playSecrets[network] ?? null
+  }
+
+  async setPlaySecret(network: Network, secret: string): Promise<void> {
+    this.data.playSecrets[network] = secret
     await this.persist()
   }
 

@@ -48,10 +48,19 @@ export class ManagedProcess extends EventEmitter {
   private readonly logs = new LogBuffer()
   private pending: string[] = []
   private flushTimer: NodeJS.Timeout | null = null
+  private redactions: string[] = []
 
   constructor(readonly id: ProcId) {
     super()
-    this.current = { id, network: null, status: 'stopped', pid: null, exitCode: null, detail: null }
+    this.current = { id, network: null, status: 'stopped', pid: null, exitCode: null, detail: null, ports: null }
+  }
+
+  /**
+   * Secrets to mask if they ever appear in this process's output. Very short values
+   * are skipped: masking them would mangle ordinary log text.
+   */
+  setRedactions(secrets: string[]): void {
+    this.redactions = secrets.filter((s) => s.length >= 8)
   }
 
   get state(): ProcState {
@@ -145,7 +154,12 @@ export class ManagedProcess extends EventEmitter {
   }
 
   private append(lines: string[]): void {
-    for (const line of lines) {
+    for (let line of lines) {
+      // Whitespace-only lines carry nothing (the client's log pattern emits one after every entry).
+      if (!line.trim()) continue
+      for (const secret of this.redactions) {
+        if (line.includes(secret)) line = line.split(secret).join('••••••')
+      }
       this.pending.push(line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)} …` : line)
     }
     if (this.pending.length > LOG_CAPACITY) this.pending.splice(0, this.pending.length - LOG_CAPACITY)

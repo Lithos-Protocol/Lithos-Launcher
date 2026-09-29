@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import cube from './assets/cube.svg'
+  import ClientCard from './lib/ClientCard.svelte'
   import LogPanel from './lib/LogPanel.svelte'
   import NetworkSwitch from './lib/NetworkSwitch.svelte'
   import NodeCard from './lib/NodeCard.svelte'
@@ -58,7 +59,10 @@
       <NodeCard />
       <WalletCard />
     </div>
-    <LogPanel />
+    <div class="main-col">
+      <ClientCard />
+      <LogPanel />
+    </div>
   </main>
 </div>
 
@@ -169,6 +173,14 @@
     gap: 24px;
     min-height: 0;
     padding: 24px;
+  }
+
+  .main-col {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    min-width: 0;
+    min-height: 0;
   }
 
   .side {

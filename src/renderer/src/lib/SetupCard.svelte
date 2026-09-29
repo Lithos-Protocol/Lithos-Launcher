@@ -26,6 +26,13 @@
       source: 'ergoplatform/ergo · ~80 MB',
       installed: ui.net?.node.installed ?? false,
       version: ui.net?.node.version ?? null
+    },
+    {
+      id: 'client',
+      label: 'Lithos Client',
+      source: 'Lithos-Protocol/Lithos-Client · ~105 MB',
+      installed: ui.net?.client.installed ?? false,
+      version: ui.net?.client.version ?? null
     }
   ])
 
@@ -59,7 +66,11 @@
       <span class="tick" aria-hidden="true">✓</span>
       <div>
         <div class="ready-title">Everything installed</div>
-        <div class="sub mono">Java {ui.net?.java.version} · Ergo node {ui.net?.node.version}</div>
+        <div class="sub mono versions">
+          <span>Java {ui.net?.java.version}</span>
+          <span>Ergo {ui.net?.node.version}</span>
+          <span>Lithos {ui.net?.client.version}</span>
+        </div>
       </div>
     </div>
   {:else}
@@ -130,6 +141,16 @@
     color: #04111f;
     font-size: 12px;
     font-weight: 700;
+  }
+
+  .versions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 12px;
+  }
+
+  .versions span {
+    white-space: nowrap;
   }
 
   .ready-title {

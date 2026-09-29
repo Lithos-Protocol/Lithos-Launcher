@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, Menu, nativeTheme, session } from 'electron'
 import { IPC } from '@shared/types'
+import { ClientController } from './clientController'
 import { Installer } from './installer'
 import { registerIpc } from './ipc'
 import { installRoot } from './layout'
@@ -101,18 +102,25 @@ function main(): void {
     node.proc.on('logs', (chunk) => send(IPC.logs, chunk))
     const wallet = new WalletManager(node, vault)
     wallet.on('state', (s) => send(IPC.wallet, s))
+    const skipSyncGate = !app.isPackaged && process.env.LITHOS_LAUNCHER_SKIP_SYNC_GATE === '1'
+    const client = new ClientController(root, vault, node, wallet, skipSyncGate)
+    client.proc.on('state', (s) => send(IPC.procState, s))
+    client.proc.on('logs', (chunk) => send(IPC.logs, chunk))
 
-    registerIpc({ window: () => win, root, vault, installer, node, wallet })
+    registerIpc({ window: () => win, root, vault, installer, node, wallet, client, skipSyncGate })
 
     win = createWindow()
     win.on('closed', () => (win = null))
 
-    // Never leave a node running unattended: shut it down cleanly before exiting.
+    // Never leave processes running unattended: stop the client, then the node, cleanly before exiting.
     app.on('before-quit', (event) => {
-      if (quitting || !node.proc.alive) return
+      if (quitting || (!node.proc.alive && !client.proc.alive)) return
       event.preventDefault()
       quitting = true
-      void node.stop().finally(() => app.quit())
+      void client
+        .stop()
+        .then(() => node.stop())
+        .finally(() => app.quit())
     })
   })
 }

@@ -1,6 +1,8 @@
 import { mkdir } from 'node:fs/promises'
+import { networkInterfaces } from 'node:os'
 import { clipboard, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
-import { IPC, isNetwork, type LogChunk, type Network, type ProcId, type ProcState } from '@shared/types'
+import { IPC, isNetwork, type AppInfo, type Network, type ProcId } from '@shared/types'
+import type { ClientController } from './clientController'
 import type { Installer } from './installer'
 import { layout, NODE_API_PORT } from './layout'
 import type { NodeController } from './nodeController'
@@ -14,11 +16,9 @@ interface IpcContext {
   installer: Installer
   node: NodeController
   wallet: WalletManager
+  client: ClientController
+  skipSyncGate: boolean
 }
-
-// Placeholder until the Lithos Client is wired up.
-const CLIENT_STATE: ProcState = { id: 'client', network: null, status: 'stopped', pid: null, exitCode: null, detail: null }
-const CLIENT_LOGS: LogChunk = { proc: 'client', start: 0, lines: [] }
 
 function asNetwork(value: unknown): Network {
   if (!isNetwork(value)) throw new Error('Invalid network')
@@ -40,6 +40,14 @@ function asBoolean(value: unknown): boolean {
   return value
 }
 
+/** Non-internal IPv4 addresses, for pointing rigs on the LAN at the stratum port. */
+function lanAddresses(): string[] {
+  return Object.values(networkInterfaces())
+    .flat()
+    .filter((a) => a && a.family === 'IPv4' && !a.internal && !a.address.startsWith('169.254.'))
+    .map((a) => a!.address)
+}
+
 export function registerIpc(ctx: IpcContext): void {
   // Only the top frame of our own window may call in.
   const handle = (channel: string, fn: (...args: unknown[]) => unknown): void => {
@@ -51,14 +59,22 @@ export function registerIpc(ctx: IpcContext): void {
       return fn(...args)
     })
   }
+  const procOf = (id: ProcId) => (id === 'node' ? ctx.node.proc : ctx.client.proc)
 
   handle(IPC.getState, (n) => ctx.installer.state(asNetwork(n)))
-  handle(IPC.getVaultInfo, () => ctx.vault.info)
+  handle(
+    IPC.getAppInfo,
+    (): AppInfo => ({ vault: ctx.vault.info, skipSyncGate: ctx.skipSyncGate, lanAddresses: lanAddresses() })
+  )
   handle(IPC.install, (n) => ctx.installer.install(asNetwork(n)))
   handle(IPC.startNode, (n) => ctx.node.start(asNetwork(n)))
-  handle(IPC.stopNode, () => ctx.node.stop())
-  handle(IPC.getProc, (id) => (asProcId(id) === 'node' ? ctx.node.proc.state : CLIENT_STATE))
-  handle(IPC.getLogs, (id) => (asProcId(id) === 'node' ? ctx.node.proc.snapshot() : CLIENT_LOGS))
+  // The client depends on the node, so it always stops first.
+  handle(IPC.stopNode, async () => {
+    await ctx.client.stop()
+    await ctx.node.stop()
+  })
+  handle(IPC.getProc, (id) => procOf(asProcId(id)).state)
+  handle(IPC.getLogs, (id) => procOf(asProcId(id)).snapshot())
   handle(IPC.getNodeInfo, () => ctx.node.info)
 
   handle(IPC.openNodePanel, async () => {
@@ -72,6 +88,14 @@ export function registerIpc(ctx: IpcContext): void {
     await mkdir(dir, { recursive: true })
     const error = await shell.openPath(dir)
     if (error) throw new Error(error)
+  })
+
+  handle(IPC.startClient, (n) => ctx.client.start(asNetwork(n)))
+  handle(IPC.stopClient, () => ctx.client.stop())
+  handle(IPC.openLithosPanel, async () => {
+    const port = ctx.client.httpPort
+    if (port === null) throw new Error('The Lithos Client is not running')
+    await shell.openExternal(`http://127.0.0.1:${port}/`)
   })
 
   handle(IPC.getWallet, () => ctx.wallet.state)

@@ -1,14 +1,11 @@
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import type { Network } from '@shared/types'
 import { layout, NODE_API_PORT } from './layout'
-import { writeFileAtomic } from './util'
+import { writeManagedBlock } from './managedBlock'
 
 /** blake2b256("hello"): the documented default key, used only for the first boot. */
 export const HELLO_HASH = '324dcf027dd4a30a932c441f365a25e86b173defa4b8e58948253471b81b72cf'
 export const HELLO_KEY = 'hello'
-
-const BEGIN = '# >>> lithos-launcher (managed, edits here are overwritten)'
-const END = '# <<< lithos-launcher'
 
 interface NodeConf {
   network: Network
@@ -17,14 +14,10 @@ interface NodeConf {
   apiKeyHash: string
 }
 
-/**
- * The launcher-managed part of ergo.conf. Settings placed below the block
- * override it (later keys win in HOCON), so hand edits survive.
- */
-function renderNodeBlock(c: NodeConf): string {
+/** The launcher-managed part of ergo.conf. */
+function nodeBlock(c: NodeConf): string[] {
   const q = JSON.stringify // JSON strings are valid HOCON quoted strings
   const lines = [
-    BEGIN,
     'ergo {',
     `  directory = ${q(c.dataDir)}`,
     `  networkType = ${q(c.network)}`,
@@ -60,27 +53,8 @@ function renderNodeBlock(c: NodeConf): string {
   if (c.network === 'testnet') {
     lines.push('    knownPeers = ["128.253.41.110:9020"]', '    peerDiscovery = true')
   }
-  lines.push('  }', '}', END)
-  return lines.join('\n')
-}
-
-/** Replaces the managed block in `file`, or prepends one, leaving everything else untouched. */
-async function writeManagedBlock(file: string, block: string): Promise<void> {
-  let existing = ''
-  try {
-    existing = await readFile(file, 'utf8')
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
-  }
-  const begin = existing.indexOf(BEGIN)
-  const end = existing.indexOf(END)
-  const next =
-    begin !== -1 && end > begin
-      ? existing.slice(0, begin) + block + existing.slice(end + END.length)
-      : existing.trim()
-        ? `${block}\n\n${existing}`
-        : `${block}\n`
-  await writeFileAtomic(file, next)
+  lines.push('  }', '}')
+  return lines
 }
 
 export async function writeNodeConf(root: string, network: Network, apiKeyHash: string): Promise<void> {
@@ -88,6 +62,6 @@ export async function writeNodeConf(root: string, network: Network, apiKeyHash: 
   await mkdir(dataDir, { recursive: true })
   await writeManagedBlock(
     layout.ergoConf(root, network),
-    renderNodeBlock({ network, dataDir, apiPort: NODE_API_PORT[network], apiKeyHash })
+    nodeBlock({ network, dataDir, apiPort: NODE_API_PORT[network], apiKeyHash })
   )
 }
