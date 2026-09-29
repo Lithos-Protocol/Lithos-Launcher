@@ -118,7 +118,9 @@ function asNodeSettingsPatch(value: unknown): NodeSettingsPatch {
 // The only external pages the UI can open. The renderer names one; it never supplies a URL.
 const LINKS: Record<string, string> = {
   soat: 'https://github.com/blindrun/soat-miner',
-  rigel: 'https://github.com/rigelminer/rigel/releases'
+  rigel: 'https://github.com/rigelminer/rigel/releases',
+  ergoReleases: 'https://github.com/ergoplatform/ergo/releases',
+  clientReleases: 'https://github.com/Lithos-Protocol/Lithos-Client/releases'
 }
 
 function launcherInfo(root: string): LauncherInfo {
@@ -166,6 +168,32 @@ export function registerIpc(ctx: IpcContext): void {
     })
   )
   handle(IPC.install, (n) => ctx.installer.install(asNetwork(n)))
+  handle(IPC.getReleases, (n, id, recheck) =>
+    ctx.installer.releases(asNetwork(n), asProcId(id), asBoolean(recheck))
+  )
+  handle(IPC.useVersion, async (n, id, v) => {
+    const network = asNetwork(n)
+    const which = asProcId(id)
+    const version = asString(v, 64)
+    const { status, network: on } = (which === 'node' ? ctx.node : ctx.client).proc.state
+    if (on === network && (status === 'starting' || status === 'stopping')) {
+      throw new Error(`Wait until the ${which === 'node' ? 'node' : 'Lithos Client'} has finished ${status}`)
+    }
+    const runningHere = on === network && status === 'running'
+    await ctx.installer.fetchVersion(network, which, version)
+    if (runningHere && which === 'node') {
+      // The client talks to the node, so it stops first. With "Start when ready" on, the dashboard
+      // starts it again once the node is back up.
+      await ctx.client.stop()
+      await ctx.node.stop()
+      await ctx.node.start(network)
+    } else if (runningHere) {
+      await ctx.client.restart(network)
+    }
+    // Only once the new version is up, so a failed start can switch straight back.
+    await ctx.installer.prune(network, which)
+    return ctx.installer.state(network)
+  })
   handle(IPC.startNode, (n) => ctx.node.start(asNetwork(n)))
   // The client depends on the node, so it always stops first.
   handle(IPC.stopNode, async () => {

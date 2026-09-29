@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { Network, NodeInfo } from '@shared/types'
-import { detectErgo } from './ergo'
+import { ERGO_DB_LABEL, ergoDb, type Network, type NodeInfo } from '@shared/types'
+import { chainDb, detectErgo } from './ergo'
 import { diagnose } from './diagnose'
 import { HELLO_HASH, HELLO_KEY, MANAGED_NODE_KEYS, writeNodeConf } from './ergoConf'
 import { interrupt } from './interrupt'
@@ -10,6 +10,7 @@ import { heapPlan, javaEnv, layout, NODE_API_PORT } from './layout'
 import { customOverrides } from './managedBlock'
 import { NodeApi } from './nodeApi'
 import { ManagedProcess } from './process'
+import { pinnedVersion } from './settings'
 import { errorMessage, isPortListening, sleep } from './util'
 import type { Vault } from './vault'
 
@@ -72,8 +73,9 @@ export class NodeController extends EventEmitter {
 
     try {
       if (!(await detectJre(this.root))) throw new Error('Java is not installed yet')
-      const ergo = await detectErgo(layout.nodeDir(this.root, network))
+      const ergo = await detectErgo(layout.nodeDir(this.root, network), pinnedVersion(network, 'node'))
       if (!ergo) throw new Error('The Ergo node is not installed yet')
+      await this.checkDatabase(network, ergo.version)
       const port = NODE_API_PORT[network]
       if (await isPortListening(port)) {
         const known = this.vault.getNodeKey(network)
@@ -89,8 +91,8 @@ export class NodeController extends EventEmitter {
       await writeNodeConf(this.root, network, stored?.hash ?? HELLO_HASH)
       await this.warnAboutOverrides(network)
       this.apiKey = stored?.key ?? HELLO_KEY
-      await this.launch(network, ergo.jar, gen)
-      if (!stored) await this.rekey(network, ergo.jar, gen)
+      await this.launch(network, ergo.version, ergo.jar, gen)
+      if (!stored) await this.rekey(network, ergo.version, ergo.jar, gen)
 
       this.proc.setState({ status: 'running', detail: null })
       this.proc.log('Node is running')
@@ -135,6 +137,20 @@ export class NodeController extends EventEmitter {
     this.proc.log('The node is using its new API key')
   }
 
+  /**
+   * A 6.0.x node can't read chain data a 6.1.x node wrote, or the other way round (LevelDB vs
+   * RocksDB). This happens after importing a chain from a node on the other line.
+   */
+  private async checkDatabase(network: Network, version: string): Promise<void> {
+    const data = await chainDb(layout.nodeDataDir(this.root, network))
+    const jar = ergoDb(version)
+    if (!data || !jar || data === jar) return
+    throw new Error(
+      `This node's chain data is stored in ${ERGO_DB_LABEL[data]}, but Ergo ${version} uses ${ERGO_DB_LABEL[jar]} ` +
+        `and can't read it. Open Versions and pick a ${ERGO_DB_LABEL[data]} version of the node.`
+    )
+  }
+
   /** Logs settings added below the launcher's block that override ones the launcher relies on. */
   private async warnAboutOverrides(network: Network): Promise<void> {
     const overrides = await customOverrides(layout.ergoConf(this.root, network), MANAGED_NODE_KEYS).catch(() => [])
@@ -176,9 +192,9 @@ export class NodeController extends EventEmitter {
     if (gen !== this.generation) throw new Cancelled()
   }
 
-  private async launch(network: Network, jar: string, gen: number): Promise<void> {
+  private async launch(network: Network, version: string, jar: string, gen: number): Promise<void> {
     const { nodeMb } = heapPlan()
-    this.proc.log(`Starting the Ergo node on ${network} (max heap ${nodeMb} MB)`)
+    this.proc.log(`Starting Ergo node ${version} on ${network} (max heap ${nodeMb} MB)`)
     this.proc.spawn({
       command: layout.javaBin(this.root),
       args: [`-Xmx${nodeMb}m`, '-Dfile.encoding=UTF-8', '-jar', jar, `--${network}`, '-c', layout.ergoConf(this.root, network)],
@@ -208,7 +224,7 @@ export class NodeController extends EventEmitter {
    * hash a fresh random key, store that key, write its hash to ergo.conf and
    * restart once so the default key stops working.
    */
-  private async rekey(network: Network, jar: string, gen: number): Promise<void> {
+  private async rekey(network: Network, version: string, jar: string, gen: number): Promise<void> {
     this.proc.setState({ detail: 'Securing the API key (one-time restart)' })
     this.proc.log('First start: replacing the default API key with a private one. The node restarts once.')
     const api = new NodeApi(NODE_API_PORT[network])
@@ -224,7 +240,7 @@ export class NodeController extends EventEmitter {
     await this.shutdownProcess()
     this.check(gen)
     this.apiKey = key
-    await this.launch(network, jar, gen)
+    await this.launch(network, version, jar, gen)
     if (!(await api.accepts(key))) throw new Error('The node did not accept its new API key')
   }
 

@@ -37,6 +37,8 @@
   ])
 
   const allInstalled = $derived(steps.every((s) => s.installed))
+  const nodeUpdate = $derived(ui.releases.node?.update ?? null)
+  const clientUpdate = $derived(ui.releases.client?.update ?? null)
   // Once everything is in place the card shrinks to one line to make room for the node and wallet.
   const compact = $derived(allInstalled && !ui.installing && !ui.setupError)
 
@@ -58,7 +60,17 @@
 <section class="panel" aria-labelledby="setup-title">
   <div class="panel-head">
     <h2 class="card-title" id="setup-title"><span class="swatch" aria-hidden="true"></span>Setup<span class="no">01</span></h2>
-    <button class="btn small" onclick={openFolder} title={ui.net?.folder}>Open folder ↗</button>
+    <div class="head-actions">
+      <button
+        class="btn small"
+        onclick={() => (ui.dialog = 'versions')}
+        disabled={!ui.net}
+        title={nodeUpdate || clientUpdate ? 'An update is available' : 'Pick the node and client versions'}
+      >
+        Versions{#if nodeUpdate || clientUpdate}<span class="dot" aria-label="Update available"></span>{/if}
+      </button>
+      <button class="btn small" onclick={openFolder} title={ui.net?.folder}>Open folder ↗</button>
+    </div>
   </div>
 
   {#if compact}
@@ -67,8 +79,14 @@
       <span class="ready-title">Everything installed</span>
       <div class="versions">
         <span class="chip"><span class="micro">Java</span><span class="num">{ui.net?.java.version}</span></span>
-        <span class="chip"><span class="micro">Ergo</span><span class="num">{ui.net?.node.version}</span></span>
-        <span class="chip"><span class="micro">Lithos</span><span class="num">{ui.net?.client.version}</span></span>
+        <span class="chip">
+          <span class="micro">Ergo</span><span class="num">{ui.net?.node.version}</span>
+          {#if nodeUpdate}<span class="up" title="Ergo {nodeUpdate} is available">↑ {nodeUpdate}</span>{/if}
+        </span>
+        <span class="chip">
+          <span class="micro">Lithos</span><span class="num">{ui.net?.client.version}</span>
+          {#if clientUpdate}<span class="up" title="Lithos Client {clientUpdate} is available">↑ {clientUpdate}</span>{/if}
+        </span>
       </div>
     </div>
   {:else}
@@ -81,7 +99,12 @@
           <div class="body">
             <div class="row">
               <span class="label">{step.label}</span>
-              <span class="version mono">{step.installed ? (step.version ?? '') : active ? '' : 'Not installed'}</span>
+              <span class="version mono">
+                {step.installed ? (step.version ?? '') : active ? '' : 'Not installed'}
+                {#if step.installed && step.id !== 'java' && ui.releases[step.id]?.update}
+                  <span class="up">↑ {ui.releases[step.id]?.update}</span>
+                {/if}
+              </span>
             </div>
             {#if p && active}
               <ProgressBar value={progressValue(p)} label="{step.label} progress" />
@@ -103,7 +126,11 @@
       {#if ui.setupError}
         <p class="error-text" role="alert">{ui.setupError}</p>
       {/if}
-      <button class="btn primary wide" onclick={install} disabled={!ui.net || allInstalled || ui.installing}>
+      <button
+        class="btn primary wide"
+        onclick={install}
+        disabled={!ui.net || allInstalled || ui.installing || ui.switching !== null}
+      >
         {ui.installing ? 'Installing…' : 'Install'}
       </button>
     </div>
@@ -160,6 +187,26 @@
 
   .chip .micro {
     font-size: 9.5px;
+  }
+
+  .up {
+    color: var(--amber-light);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+  }
+
+  .head-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
   }
 
   .steps {

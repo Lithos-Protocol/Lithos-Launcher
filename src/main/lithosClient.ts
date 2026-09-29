@@ -1,13 +1,15 @@
-import { access, mkdir, readdir, rm, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { access, mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import type { Network, TaskProgress } from '@shared/types'
 import { extractZip } from './extract'
 import { download, getJson } from './net'
 import { compareVersions, renameWithRetry } from './util'
 
-const RELEASES_URL = 'https://api.github.com/repos/Lithos-Protocol/Lithos-Client/releases?per_page=30'
+const RELEASES_URL = 'https://api.github.com/repos/Lithos-Protocol/Lithos-Client/releases?per_page=50'
 const ZIP_RE = /^lithos-client-.+\.zip$/
 const HOME_RE = /^lithos-client-(.+)$/
+/** Releases being removed are renamed to this first. */
+const OLD_PREFIX = '.old-'
 
 interface GhAsset {
   name: string
@@ -21,6 +23,15 @@ interface GhRelease {
   draft: boolean
   published_at: string
   assets: GhAsset[]
+}
+
+export interface ClientRelease {
+  version: string
+  name: string
+  url: string
+  sha256: string
+  size: number
+  publishedAt: string
 }
 
 export interface InstalledClient {
@@ -41,25 +52,38 @@ function compareLoose(a: string, b: string): number {
   return compareVersions(num(a), num(b))
 }
 
-async function resolveClient(network: Network) {
+/**
+ * Every release on this network's track with a client zip and a published checksum (without one
+ * the download can't be verified), newest first.
+ */
+export async function listClientReleases(network: Network): Promise<ClientRelease[]> {
   const releases = await getJson<GhRelease[]>(RELEASES_URL)
-  const release = releases
+  return releases
     .filter((r) => !r.draft && onTrack(network, r.tag_name))
     .sort((a, b) => b.published_at.localeCompare(a.published_at))
-    .find((r) => r.assets.some((a) => ZIP_RE.test(a.name)))
-  if (!release) throw new Error(`No Lithos Client release was found for ${network}`)
+    .flatMap((release) => {
+      const asset = release.assets.find((a) => ZIP_RE.test(a.name))
+      if (!asset?.digest?.startsWith('sha256:')) return []
+      return [
+        {
+          version: release.tag_name.replace(/^v/, ''),
+          name: asset.name,
+          url: asset.browser_download_url,
+          sha256: asset.digest.slice('sha256:'.length),
+          size: asset.size,
+          publishedAt: release.published_at
+        }
+      ]
+    })
+}
 
-  const asset = release.assets.find((a) => ZIP_RE.test(a.name))!
-  if (!asset.digest?.startsWith('sha256:')) {
-    throw new Error(`Lithos Client ${release.tag_name} has no published checksum, so it will not be installed`)
-  }
-  return {
-    version: release.tag_name.replace(/^v/, ''),
-    name: asset.name,
-    url: asset.browser_download_url,
-    sha256: asset.digest.slice('sha256:'.length),
-    size: asset.size
-  }
+/** The newest release if it came out after `active`, else null. */
+export function clientUpdate(releases: ClientRelease[], active: string): string | null {
+  const newest = releases[0]
+  if (!newest || newest.version === active) return null
+  const at = releases.findIndex((r) => r.version === active)
+  // A version no longer listed (pulled, or past the first page) is compared by number.
+  return at > 0 || (at === -1 && compareLoose(newest.version, active) > 0) ? newest.version : null
 }
 
 async function launcherJarIn(home: string): Promise<string | null> {
@@ -71,33 +95,36 @@ async function launcherJarIn(home: string): Promise<string | null> {
   }
 }
 
-/** Newest unpacked release in `clientDir`, or null. */
-export async function detectClient(clientDir: string): Promise<InstalledClient | null> {
+/** Unpacked releases in `clientDir`, newest first. */
+export async function installedClients(clientDir: string): Promise<InstalledClient[]> {
   let entries: string[]
   try {
     entries = await readdir(clientDir)
   } catch {
-    return null
+    return []
   }
-  let best: InstalledClient | null = null
+  const found: InstalledClient[] = []
   for (const entry of entries) {
     const version = HOME_RE.exec(entry)?.[1]
     if (!version) continue
     const home = join(clientDir, entry)
     const launcherJar = await launcherJarIn(home)
-    if (launcherJar && (!best || compareLoose(version, best.version) > 0)) best = { version, home, launcherJar }
+    if (launcherJar) found.push({ version, home, launcherJar })
   }
-  return best
+  return found.sort((a, b) => compareLoose(b.version, a.version))
+}
+
+/** The release to run: the version picked under Versions if it is installed, else the newest. */
+export async function detectClient(clientDir: string, pinned: string | null = null): Promise<InstalledClient | null> {
+  const installed = await installedClients(clientDir)
+  return installed.find((c) => c.version === pinned) ?? installed[0] ?? null
 }
 
 export async function installClient(
   clientDir: string,
-  network: Network,
+  release: ClientRelease,
   onProgress: (p: TaskProgress) => void
 ): Promise<string> {
-  onProgress({ task: 'client', phase: 'resolving' })
-  const release = await resolveClient(network)
-
   const archive = join(clientDir, '.downloads', release.name)
   const staging = join(clientDir, `.staging-${Date.now()}`)
   const target = join(clientDir, `lithos-client-${release.version}`)
@@ -127,6 +154,31 @@ export async function installClient(
 
   onProgress({ task: 'client', phase: 'done', message: release.version })
   return release.version
+}
+
+/**
+ * Deletes every unpacked release but `keep`. Only the release folders go: lithos.conf, .lithos/
+ * and logs/ sit beside them and stay. A release still in use is left for next time.
+ */
+export async function removeOtherClients(clientDir: string, keep: string): Promise<void> {
+  const drop = (path: string): Promise<void> =>
+    rm(path, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch(() => undefined)
+  // Leftovers from an earlier removal that didn't finish.
+  for (const entry of await readdir(clientDir).catch(() => [])) {
+    if (entry.startsWith(OLD_PREFIX)) await drop(join(clientDir, entry))
+  }
+  for (const { version, home } of await installedClients(clientDir)) {
+    if (version === keep) continue
+    // Moved aside first: Windows won't rename a release that is still running, so one in use is
+    // skipped whole instead of being left half deleted.
+    const aside = join(clientDir, `${OLD_PREFIX}${basename(home)}`)
+    try {
+      await rename(home, aside)
+    } catch {
+      continue
+    }
+    await drop(aside)
+  }
 }
 
 /** The node wallet's keystore file (one UUID-named JSON), or null before a wallet exists. */

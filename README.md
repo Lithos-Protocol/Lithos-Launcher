@@ -20,6 +20,9 @@ what to do next.
 - **Helps you mine:** picks a starting difficulty from your hashrate using the same formulas as the client's Difficulty
   page, explains the on-chain commitment before you opt in, and shows connected rigs, hashrate and super shares.
 - **Streams the node's and client's console output** in tabs.
+- **Keeps the node and client current:** the Setup card flags a newer release, and Versions switches either one to
+  any release on GitHub (restarting it if it runs). For the node it offers both of Ergo's builds, LevelDB (6.0.x) and
+  RocksDB (6.1.x), and keeps you on the one your synced chain was written with, since neither can read the other's.
 - **Imports an existing setup:** uses your synced chain and wallet where they are, so nothing re-syncs.
 - **Keeps mining in the background** from the system tray when you close the window.
 
@@ -55,7 +58,7 @@ Everything lives in `~/Lithos` (`C:\Users\<you>\Lithos` on Windows) unless you c
 The launcher writes only a clearly marked block at the top of `ergo.conf` and `lithos.conf`. Settings you add below that
 block are kept, and win over the launcher's. Settings opens either file, and warns if your additions override something
 the launcher relies on. The launcher's own settings file (`launcher.json`, in the app's data folder)
-exists only if you change the install folder, memory sizes, or import a setup.
+exists only if you change the install folder, memory sizes or versions, or import a setup.
 
 ## Requirements
 
@@ -86,7 +89,7 @@ LITHOS_LAUNCHER_ROOT=./test-root npm run dev
 | `npm run build` | Typecheck and bundle into `out/` |
 | `npm run dist:win` | Windows installer (NSIS) in `release/` |
 | `npm run dist:linux` | AppImage and .deb in `release/` |
-| `npm run icons` | Re-render the app and tray icons from the cube SVG |
+| `npm run icons` | Re-render the app and tray icons from the Lithos mark (`src/renderer/src/assets/lithos-mark.png`, the web docs logo) |
 
 The code is Electron + TypeScript + Svelte 5, bundled with electron-vite:
 

@@ -1,10 +1,11 @@
 import { cp, readdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { CONFIG_DIFF_RE } from '@shared/mining'
-import { isNetwork, type ImportOptions, type ImportPreview, type Network } from '@shared/types'
+import { ERGO_DB_LABEL, ergoDb, isNetwork, type ImportOptions, type ImportPreview, type Network } from '@shared/types'
 import { readClientSettings, updateClientSettings } from './clientConf'
+import { chainDb, detectErgo } from './ergo'
 import { layout, NODE_API_PORT } from './layout'
-import { updateSettings } from './settings'
+import { pinnedVersion, updateSettings } from './settings'
 import { isPortListening, writeFileAtomic } from './util'
 
 async function isDir(path: string): Promise<boolean> {
@@ -110,18 +111,28 @@ export class Importer {
   async inspect(network: Network, nodeFolder: string, clientFolder: string | null): Promise<ImportPreview> {
     const dataDir = await findDataDir(nodeFolder)
     if (!dataDir) throw new Error('No Ergo node data here. Pick the node folder, or the .ergo folder inside it.')
-    const [chainBytes, hasWallet, detectedNetwork, client] = await Promise.all([
+    const [chainBytes, hasWallet, detectedNetwork, client, dataDb, node] = await Promise.all([
       dirSize(join(dataDir, 'history')),
       readdir(join(dataDir, 'wallet', 'keystore'))
         .then((f) => f.some((n) => n.endsWith('.json')))
         .catch(() => false),
       detectNetwork(dataDir),
-      clientFolder ? inspectClient(clientFolder) : Promise.resolve(null)
+      clientFolder ? inspectClient(clientFolder) : Promise.resolve(null),
+      chainDb(dataDir),
+      detectErgo(layout.nodeDir(this.root, network), pinnedVersion(network, 'node'))
     ])
 
     const warnings: string[] = []
     if (detectedNetwork && detectedNetwork !== network) {
       warnings.push(`The config next to this folder says ${detectedNetwork}, but you are importing it as ${network}.`)
+    }
+    const nodeDb = node ? ergoDb(node.version) : null
+    if (dataDb && nodeDb && dataDb !== nodeDb) {
+      warnings.push(
+        `This chain is stored in ${ERGO_DB_LABEL[dataDb]}, but the launcher's node (${node?.version}) uses ` +
+          `${ERGO_DB_LABEL[nodeDb]} and can't read it. After importing, open Versions and pick a ` +
+          `${ERGO_DB_LABEL[dataDb]} version of the node.`
+      )
     }
     if (!hasWallet) warnings.push('No wallet was found in this data. You can create or restore one after importing.')
     if (await isPortListening(NODE_API_PORT[network])) {

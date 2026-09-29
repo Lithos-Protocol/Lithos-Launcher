@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import type { Network } from '@shared/types'
+import type { Network, ProcId } from '@shared/types'
 import { writeFileAtomic } from './util'
 
 /**
@@ -16,6 +16,8 @@ export interface LauncherSettings {
   heap?: { nodeMb?: number; clientMb?: number }
   /** Node data folders adopted from an existing setup, used in place. */
   dataDirs?: Partial<Record<Network, string>>
+  /** Node and client versions picked under Versions; absent means the newest one installed. */
+  versions?: Partial<Record<Network, Partial<Record<ProcId, string>>>>
 }
 
 const file = (): string => join(app.getPath('userData'), 'launcher.json')
@@ -35,6 +37,11 @@ export function loadSettings(): LauncherSettings {
 
 export function settings(): LauncherSettings {
   return current
+}
+
+/** The node or client version picked for a network, if one was. */
+export function pinnedVersion(network: Network, id: ProcId): string | null {
+  return current.versions?.[network]?.[id] ?? null
 }
 
 export async function updateSettings(patch: (s: LauncherSettings) => void): Promise<LauncherSettings> {

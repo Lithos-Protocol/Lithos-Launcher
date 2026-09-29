@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import cube from './assets/cube.svg'
+  import logo from './assets/lithos-mark.png'
   import ClientCard from './lib/ClientCard.svelte'
   import CommitDialog from './lib/CommitDialog.svelte'
   import DifficultyDialog from './lib/DifficultyDialog.svelte'
@@ -13,6 +13,7 @@
   import SettingsDialog from './lib/SettingsDialog.svelte'
   import ShareDialog from './lib/ShareDialog.svelte'
   import SetupCard from './lib/SetupCard.svelte'
+  import VersionsDialog from './lib/VersionsDialog.svelte'
   import WalletCard from './lib/WalletCard.svelte'
   import WalletWizard from './lib/WalletWizard.svelte'
   import { clientRequirements, init, startClient, ui } from './lib/store.svelte'
@@ -45,7 +46,7 @@
 <div class="app">
   <header class="topbar">
     <div class="brand">
-      <img class="cube" class:alive={nodeUp} src={cube} alt="" width="40" height="40" />
+      <img class="logo" class:alive={nodeUp} src={logo} alt="" width="40" height="40" />
       <div>
         <h1>Lithos<span class="flow-word">Launcher</span></h1>
         <div class="micro">Ergo node · Lithos Client</div>
@@ -55,7 +56,7 @@
     <div class="spacer"></div>
 
     <div class="controls">
-      <NetworkSwitch disabled={ui.installing} />
+      <NetworkSwitch disabled={ui.installing || ui.switching !== null} />
       <div class="row">
         {#if ui.vault}
           <div
@@ -115,6 +116,8 @@
   <SettingsDialog />
 {:else if ui.dialog === 'import'}
   <ImportDialog />
+{:else if ui.dialog === 'versions'}
+  <VersionsDialog />
 {/if}
 
 {#if ui.wizard}
@@ -156,12 +159,12 @@
     margin-top: 3px;
   }
 
-  .cube {
+  .logo {
     filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.35));
     animation: float 6s ease-in-out infinite;
   }
 
-  .cube.alive {
+  .logo.alive {
     animation:
       float 6s ease-in-out infinite,
       beam 2.4s ease-in-out infinite;

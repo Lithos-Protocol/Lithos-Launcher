@@ -11,6 +11,7 @@ import { detectClient, findKeystore } from './lithosClient'
 import { customOverrides } from './managedBlock'
 import type { NodeController } from './nodeController'
 import { ManagedProcess } from './process'
+import { pinnedVersion } from './settings'
 import { lanAddresses } from './system'
 import { errorMessage, isPortListening, sleep } from './util'
 import type { Vault } from './vault'
@@ -68,7 +69,7 @@ export class ClientController {
 
     try {
       if (!(await detectJre(this.root))) throw new Error('Java is not installed yet')
-      const client = await detectClient(layout.clientDir(this.root, network))
+      const client = await detectClient(layout.clientDir(this.root, network), pinnedVersion(network, 'client'))
       if (!client) throw new Error('The Lithos Client is not installed yet')
       const conn = this.node.connection()
       if (!conn || conn.network !== network) throw new Error(`Start the ${network} node first`)

@@ -7,7 +7,9 @@ import type {
   Network,
   NetworkState,
   NodeInfo,
+  ProcId,
   ProcState,
+  ReleaseList,
   TaskId,
   TaskProgress,
   VaultInfo,
@@ -59,7 +61,7 @@ export const ui = $state({
   clientStats: null as ClientStats | null,
   /** Start the client by itself once everything it needs is ready. */
   autoStartClient: savedAutoStart(),
-  dialog: null as 'difficulty' | 'commit' | 'miner' | 'shares' | 'settings' | 'import' | null,
+  dialog: null as 'difficulty' | 'commit' | 'miner' | 'shares' | 'settings' | 'import' | 'versions' | null,
   quickSetup: false,
   platform: '' as string,
   /** Open wallet wizard, if any. */
@@ -70,6 +72,10 @@ export const ui = $state({
   skipSyncGate: false,
   lanAddresses: [] as string[],
   installing: false,
+  /** Node and client releases on GitHub for the selected network; null until checked (or offline). */
+  releases: { node: null, client: null } as Record<ProcId, ReleaseList | null>,
+  /** The node or client whose version is being switched. */
+  switching: null as ProcId | null,
   setupError: null as string | null,
   nodeError: null as string | null,
   clientError: null as string | null
@@ -132,6 +138,36 @@ export async function refresh(): Promise<void> {
     ui.net = state
     ui.clientSettings = settings
   }
+  // Quietly looks for newer releases; GitHub is only asked again after a while.
+  if (state.node.installed || state.client.installed) void loadReleases(false).catch(() => undefined)
+}
+
+/** Fetches both release lists for the selected network. Throws if GitHub can't be reached. */
+export async function loadReleases(recheck: boolean): Promise<void> {
+  const network = ui.network
+  const [node, client] = await Promise.all([
+    api.getReleases(network, 'node', recheck),
+    api.getReleases(network, 'client', recheck)
+  ])
+  if (network === ui.network) ui.releases = { node, client }
+}
+
+/** Switches the node or client to `version`, restarting it if it runs. Returns an error message, or null. */
+export async function useVersion(id: ProcId, version: string): Promise<string | null> {
+  const network = ui.network
+  ui.switching = id
+  delete ui.progress[id]
+  try {
+    const state = await api.useVersion(network, id, version)
+    if (state.network === ui.network) ui.net = state
+    await loadReleases(false).catch(() => undefined)
+    return null
+  } catch (err) {
+    await refresh()
+    return errorText(err)
+  } finally {
+    ui.switching = null
+  }
 }
 
 export async function setNetwork(network: Network): Promise<void> {
@@ -139,6 +175,7 @@ export async function setNetwork(network: Network): Promise<void> {
   ui.network = network
   ui.net = null
   ui.clientSettings = null
+  ui.releases = { node: null, client: null }
   ui.setupError = null
   ui.progress = {}
   try {

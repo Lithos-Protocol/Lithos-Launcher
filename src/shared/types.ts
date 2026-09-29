@@ -25,6 +25,42 @@ export interface NetworkState {
   client: ComponentState
 }
 
+/**
+ * How an Ergo node stores the chain. Ergo publishes each release twice: x.0.y on LevelDB and its
+ * x.1.y twin on RocksDB. Both work with Lithos, but neither can read chain data the other wrote.
+ */
+export type ErgoDb = 'leveldb' | 'rocksdb'
+
+export const ERGO_DB_LABEL: Record<ErgoDb, string> = { leveldb: 'LevelDB', rocksdb: 'RocksDB' }
+
+/** The database an Ergo version uses, from the minor number; null for a line not known yet. */
+export function ergoDb(version: string): ErgoDb | null {
+  const minor = version.split('.')[1]
+  return minor === '0' ? 'leveldb' : minor === '1' ? 'rocksdb' : null
+}
+
+/** A release on GitHub the launcher can install. */
+export interface ReleaseInfo {
+  version: string
+  publishedAt: string
+  size: number
+  /** Node releases only: the database it keeps the chain in. */
+  db: ErgoDb | null
+}
+
+export interface ReleaseList {
+  id: ProcId
+  network: Network
+  /** Newest first. The client's list holds this network's track only. */
+  releases: ReleaseInfo[]
+  /** The version the launcher runs, or null before one is installed. */
+  active: string | null
+  /** A newer release to update to in place: for the node, on the same database. */
+  update: string | null
+  /** Node only: the database the existing chain data was written with, or null before there is any. */
+  dataDb: ErgoDb | null
+}
+
 export interface ProcState {
   id: ProcId
   network: Network | null
@@ -186,7 +222,7 @@ export interface NetworkConfigInfo {
 }
 
 /** External pages the UI may open; the URLs live in the main process. */
-export type LinkName = 'soat' | 'rigel'
+export type LinkName = 'soat' | 'rigel' | 'ergoReleases' | 'clientReleases'
 
 export interface SystemCheck {
   totalMemBytes: number
@@ -237,6 +273,14 @@ export interface LauncherApi {
   getState(network: Network): Promise<NetworkState>
   getAppInfo(): Promise<AppInfo>
   install(network: Network): Promise<NetworkState>
+  /** Releases of the node or this network's client on GitHub. Cached for a while unless `recheck`. */
+  getReleases(network: Network, id: ProcId, recheck: boolean): Promise<ReleaseList>
+  /**
+   * Downloads `version` if needed and makes it the one the launcher runs. If it is running on this
+   * network it restarts on the new version (the client stops first when the node does); the old
+   * version is then removed.
+   */
+  useVersion(network: Network, id: ProcId, version: string): Promise<NetworkState>
   startNode(network: Network): Promise<void>
   stopNode(): Promise<void>
   getProc(id: ProcId): Promise<ProcState>
@@ -310,6 +354,8 @@ export const IPC = {
   getState: 'launcher:get-state',
   getAppInfo: 'launcher:get-app-info',
   install: 'launcher:install',
+  getReleases: 'versions:list',
+  useVersion: 'versions:use',
   startNode: 'node:start',
   stopNode: 'node:stop',
   getProc: 'proc:get',
