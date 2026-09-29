@@ -243,21 +243,12 @@
 
   .active .marker {
     border-color: var(--sky);
+    background: rgba(56, 189, 248, 0.3);
     box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
-    animation: glow 1.2s ease-in-out infinite alternate;
   }
 
   .failed .marker {
     border-color: var(--red);
-  }
-
-  @keyframes glow {
-    from {
-      background: rgba(56, 189, 248, 0.1);
-    }
-    to {
-      background: rgba(56, 189, 248, 0.45);
-    }
   }
 
   .body {

@@ -40,6 +40,7 @@
 </div>
 
 <style>
+  /* A plain dim, no backdrop blur: in software rendering a blur recomputes whenever the log behind it scrolls. */
   .overlay {
     position: fixed;
     inset: 0;
@@ -47,8 +48,7 @@
     display: grid;
     place-items: center;
     padding: 24px;
-    background: rgba(4, 6, 13, 0.8);
-    backdrop-filter: blur(6px);
+    background: rgba(4, 6, 13, 0.88);
   }
 
   /* The frame clips and the inner area scrolls, so the scrollbar stays inside the rounded border. */

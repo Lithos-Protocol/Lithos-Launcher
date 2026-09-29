@@ -267,6 +267,10 @@ export interface AppInfo {
   /** This machine's LAN IPv4 addresses, for pointing mining rigs at the stratum port. */
   lanAddresses: string[]
   platform: 'win32' | 'linux' | 'darwin' | string
+  /** False when Chromium's OS sandbox is off (the AppImage's --no-sandbox fallback). */
+  sandboxed: boolean
+  /** Running from an AppImage, where the .deb is the sandboxed alternative. */
+  appImage: boolean
 }
 
 export interface LauncherApi {
@@ -340,8 +344,10 @@ export interface LauncherApi {
   /** `remember` saves the password to the vault; it is always kept for the session. */
   unlockWallet(password: string, remember: boolean): Promise<void>
   copyText(text: string): Promise<void>
-  /** Hides the window from screenshots/screen recording while secrets are on screen. */
+  /** Hides the window from screenshots/screen recording while secrets are on screen (not on Linux). */
   setSensitive(on: boolean): Promise<void>
+  /** Stops the node and client safely and quits; asks first if either is running. */
+  quit(): Promise<void>
   onProgress(cb: (p: TaskProgress) => void): () => void
   onProcState(cb: (s: ProcState) => void): () => void
   onLogs(cb: (chunk: LogChunk) => void): () => void
@@ -396,6 +402,7 @@ export const IPC = {
   unlockWallet: 'wallet:unlock',
   copyText: 'launcher:copy-text',
   setSensitive: 'launcher:set-sensitive',
+  quit: 'launcher:quit',
   // main -> renderer
   progress: 'evt:progress',
   procState: 'evt:proc-state',

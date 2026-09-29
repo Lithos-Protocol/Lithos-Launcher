@@ -12,9 +12,11 @@ what to do next.
 - **Installs** a Java 11 runtime (Eclipse Temurin), the Ergo node and the Lithos Client. Every download is checked
   against its published SHA-256 checksum, and nothing is installed system-wide.
 - **Configures** the node and client for Lithos: indexing, mining, and the network (mainnet or testnet).
-- **Creates or restores the wallet**, with a seed phrase screen that asks you to confirm three words and is hidden from
-  screen capture while it is shown. It can also use an existing node keystore file: the launcher copies it into the
-  node's wallet folder and the node checks its password.
+- **Creates or restores the wallet**, with a seed phrase screen that asks you to confirm three words. On Windows the
+  screen is hidden from screen capture while it is shown. Linux has no way to do that, so there the words stay masked
+  until you hold a button (or turn masking off), and the screen warns that screenshots and recordings can capture them.
+  It can also use an existing node keystore file: the launcher copies it into the node's wallet folder and the node
+  checks its password.
 - **Shows sync progress** (headers, blocks, index) with a time estimate, and starts the Lithos Client by itself once the
   node is ready.
 - **Helps you mine:** picks a starting difficulty from your hashrate using the same formulas as the client's Difficulty
@@ -40,8 +42,11 @@ what to do next.
 - The node's API listens on `127.0.0.1` only. So does the Lithos panel, unless you open it to your network in Settings
   to check on mining from a phone; it then accepts only this computer's own addresses as host names. Stratum listens on
   your network so other rigs can connect.
-- The window runs sandboxed with context isolation, a strict content security policy and no navigation. Packaged builds
-  disable `RunAsNode`, `NODE_OPTIONS` and inspector flags, and verify the app archive's integrity.
+- The window runs with context isolation, no Node access, a strict content security policy and no navigation. It also
+  asks for Chromium's OS sandbox, which is on for the Windows installer and the Linux `.deb`. The AppImage turns the
+  sandbox off wherever the system blocks what it needs (on Ubuntu 24.04 that is usually the case), and Settings says
+  when that has happened. Packaged builds disable `RunAsNode`, `NODE_OPTIONS` and inspector flags, and verify the app
+  archive's integrity.
 
 ## Where things go
 
@@ -66,6 +71,24 @@ exists only if you change the install folder, memory sizes or versions, or impor
 - About 8 GB of RAM for the node and client together
 - Disk space for the chain: tens of GB, growing over time
 - A GPU miner that supports Autolykos 2 (for example [SOAT Miner](https://github.com/blindrun/soat-miner))
+
+### Linux: .deb or AppImage
+
+On Ubuntu, Debian and their relatives, install the `.deb`:
+
+```bash
+sudo apt install ./Lithos-Launcher-<version>.deb
+```
+
+It runs with Chromium's sandbox on and needs nothing else. The AppImage works on other distributions, with two
+caveats:
+
+- It needs FUSE 2. On Ubuntu 24.04 that is `sudo apt install libfuse2t64` (`libfuse2` on older releases). Without it the
+  AppImage fails with `dlopen(): error loading libfuse.so.2`; running it with `--appimage-extract-and-run` also works.
+- It runs without Chromium's sandbox where the system doesn't allow one (see Keys and passwords).
+
+Keeping mining in the background uses the system tray. Stock GNOME has no tray without an AppIndicator extension
+(Ubuntu ships one); without it, start Lithos Launcher again to bring the window back.
 
 ## Development
 

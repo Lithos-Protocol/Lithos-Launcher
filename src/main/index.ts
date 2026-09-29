@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, Menu, nativeTheme, session } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, screen, session } from 'electron'
 import { IPC } from '@shared/types'
 import { ClientController } from './clientController'
 import { Importer } from './importer'
@@ -9,6 +9,7 @@ import { installRoot } from './layout'
 import { NodeController } from './nodeController'
 import { loadSettings } from './settings'
 import { LauncherTray } from './tray'
+import { errorMessage } from './util'
 import { Vault } from './vault'
 import { WalletManager } from './wallet'
 
@@ -33,13 +34,31 @@ if (!app.requestSingleInstanceLock()) {
 
 /** The user already chose "Close anyway" for an unconfirmed seed phrase; don't ask twice. */
 let seedCloseConfirmed = false
+/** A close or quit question is on screen; further close clicks wait for its answer. */
+let closePromptOpen = false
+
+/** Asks before closing over an unconfirmed seed phrase. True means close anyway. */
+async function confirmSeedClose(win: BrowserWindow): Promise<boolean> {
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: ['Stay', 'Close anyway'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Seed phrase not confirmed',
+    message: 'You have not confirmed your seed phrase yet.',
+    detail: 'If you close now, the launcher cannot show these words again. Without them, funds in this wallet cannot be recovered.'
+  })
+  return response === 1
+}
 
 function createWindow(): BrowserWindow {
+  // Never larger than the usable screen (panels and docks excluded), even for the minimum size.
+  const area = screen.getPrimaryDisplay().workAreaSize
   const win = new BrowserWindow({
-    width: 1200,
-    height: 780,
-    minWidth: 980,
-    minHeight: 640,
+    width: Math.min(1200, area.width),
+    height: Math.min(780, area.height),
+    minWidth: Math.min(980, area.width),
+    minHeight: Math.min(640, area.height),
     show: false,
     title: 'Lithos Launcher',
     icon: join(app.getAppPath(), 'resources', 'icon.png'),
@@ -57,22 +76,22 @@ function createWindow(): BrowserWindow {
   })
   win.once('ready-to-show', () => win.show())
 
-  // The renderer blocks unloading while an unconfirmed seed phrase is on screen.
+  // The renderer blocks unloading while an unconfirmed seed phrase is on screen. The window stays
+  // open while the (non-blocking) question is up; "Close anyway" closes it again with the guard lifted.
   win.webContents.on('will-prevent-unload', (event) => {
     if (seedCloseConfirmed) {
-      event.preventDefault()
+      event.preventDefault() // proceed with closing
       return
     }
-    const choice = dialog.showMessageBoxSync(win, {
-      type: 'warning',
-      buttons: ['Stay', 'Close anyway'],
-      defaultId: 0,
-      cancelId: 0,
-      title: 'Seed phrase not confirmed',
-      message: 'You have not confirmed your seed phrase yet.',
-      detail: 'If you close now, the launcher cannot show these words again. Without them, funds in this wallet cannot be recovered.'
-    })
-    if (choice === 1) event.preventDefault() // proceed with closing
+    if (closePromptOpen) return
+    closePromptOpen = true
+    void confirmSeedClose(win)
+      .then((close) => {
+        if (!close || win.isDestroyed()) return
+        seedCloseConfirmed = true
+        win.close()
+      })
+      .finally(() => (closePromptOpen = false))
   })
 
   const devUrl = process.env.ELECTRON_RENDERER_URL
@@ -138,7 +157,8 @@ function main(): void {
       client,
       importer,
       skipSyncGate,
-      onSensitive: (on) => (seedOnScreen = on)
+      onSensitive: (on) => (seedOnScreen = on),
+      quit: () => requestQuit()
     })
 
     const tray = new LauncherTray({
@@ -149,49 +169,76 @@ function main(): void {
     node.proc.on('state', () => tray.refresh())
     client.proc.on('state', () => tray.refresh())
 
+    const anyRunning = (): boolean => node.proc.alive || client.proc.alive
+    const runningText = (): string => (client.proc.alive ? 'The node and the Lithos Client are' : 'The node is')
+
     /**
      * Closing the window while the node or client runs asks whether to keep mining in the
      * background. Backgrounding destroys the window (and its renderer's memory); the tray reopens it.
      */
-    const attachClose = (w: BrowserWindow): void => {
-      w.on('close', (event) => {
-        if (quitting || (!node.proc.alive && !client.proc.alive)) return
-        event.preventDefault()
-        if (seedOnScreen) {
-          const stay = dialog.showMessageBoxSync(w, {
-            type: 'warning',
-            buttons: ['Stay', 'Close anyway'],
-            defaultId: 0,
-            cancelId: 0,
-            title: 'Seed phrase not confirmed',
-            message: 'You have not confirmed your seed phrase yet.',
-            detail: 'If you close now, the launcher cannot show these words again.'
-          })
-          if (stay === 0) return
-          seedCloseConfirmed = true
-        }
-        const running = client.proc.alive ? 'The node and the Lithos Client are' : 'The node is'
-        const choice = dialog.showMessageBoxSync(w, {
+    const askOnClose = async (w: BrowserWindow): Promise<void> => {
+      closePromptOpen = true
+      try {
+        if (seedOnScreen && !(await confirmSeedClose(w))) return
+        const { response } = await dialog.showMessageBox(w, {
           type: 'question',
           buttons: ['Keep running in the background', 'Stop and quit', 'Cancel'],
           defaultId: 0,
           cancelId: 2,
           title: 'Lithos is still running',
-          message: `${running} still running.`,
+          message: `${runningText()} still running.`,
           detail:
-            'Keep mining in the background (the launcher stays in the system tray), or stop everything safely and quit.'
+            'Keep mining in the background, or stop everything safely and quit. To bring the window back, use the ' +
+            'Lithos icon in the system tray or start Lithos Launcher again.'
         })
-        if (choice === 0) {
+        if (w.isDestroyed()) return
+        if (response === 0) {
           backgrounded = true
           tray.show()
           w.destroy()
-        } else if (choice === 1) {
+        } else if (response === 1) {
+          seedCloseConfirmed = true
           app.quit()
         }
+      } finally {
+        closePromptOpen = false
+      }
+    }
+
+    const attachClose = (w: BrowserWindow): void => {
+      w.on('close', (event) => {
+        if (quitting || !anyRunning()) return
+        event.preventDefault()
+        if (!closePromptOpen) void askOnClose(w)
       })
       w.on('closed', () => {
         if (win === w) win = null
       })
+    }
+
+    /** The window's own Quit button: confirms first if anything is running, then stops it all safely. */
+    const requestQuit = async (): Promise<void> => {
+      const w = win
+      if (!w || w.isDestroyed() || quitting || !anyRunning()) {
+        app.quit()
+        return
+      }
+      if (closePromptOpen) return
+      closePromptOpen = true
+      try {
+        const { response } = await dialog.showMessageBox(w, {
+          type: 'question',
+          buttons: ['Stop and quit', 'Cancel'],
+          defaultId: 0,
+          cancelId: 1,
+          title: 'Quit Lithos Launcher',
+          message: `${runningText()} running.`,
+          detail: 'Quitting stops them safely first, which can take a little while.'
+        })
+        if (response === 0) app.quit()
+      } finally {
+        closePromptOpen = false
+      }
     }
 
     openWindow = () => {
@@ -209,13 +256,15 @@ function main(): void {
 
     // Never leave processes running unattended: stop the client, then the node, cleanly before exiting.
     app.on('before-quit', (event) => {
-      if (quitting || (!node.proc.alive && !client.proc.alive)) return
+      if (quitting || !anyRunning()) return
       event.preventDefault()
       quitting = true
-      void client
-        .stop()
-        .then(() => node.stop())
-        .finally(() => app.quit())
+      // The client depends on the node, so it stops first; a failure there must not skip the node.
+      const stopAll = async (): Promise<void> => {
+        await client.stop().catch((err: unknown) => client.proc.log(`Stopping failed: ${errorMessage(err)}`))
+        await node.stop().catch((err: unknown) => node.proc.log(`Stopping failed: ${errorMessage(err)}`))
+      }
+      void stopAll().finally(() => app.quit())
     })
   })
 }

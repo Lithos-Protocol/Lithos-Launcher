@@ -29,7 +29,8 @@
   const restoreWords = $derived(mnemonic.trim() ? mnemonic.trim().split(/\s+/).length : 0)
   const restoreCountOk = $derived((MNEMONIC_LENGTHS as readonly number[]).includes(restoreWords))
 
-  // While the seed is on screen and unconfirmed: hide the window from screen capture and block closing.
+  // While the seed is on screen and unconfirmed: hide the window from screen capture (Windows only)
+  // and block closing.
   const sensitive = $derived(step === 'seed' || step === 'confirm')
   $effect(() => {
     void window.lithos.setSensitive(sensitive)
@@ -42,6 +43,21 @@
     return () => window.removeEventListener('beforeunload', guard)
   })
   onDestroy(() => void window.lithos.setSensitive(false))
+
+  // Linux can't keep a window out of screenshots, so the words stay masked unless Reveal is held
+  // or masking is turned off. Masked words are a fixed placeholder, never the real word blurred:
+  // seed words come from a 2048-word list, so a blurred word could be matched from a screenshot.
+  const linux = ui.platform === 'linux'
+  const MASK = '••••••'
+  let unmasked = $state(false)
+  let holding = $state(false)
+  const masked = $derived(linux && !unmasked && !holding)
+
+  function holdKey(event: KeyboardEvent, on: boolean): void {
+    if (event.key !== ' ' && event.key !== 'Enter') return
+    event.preventDefault()
+    if (!event.repeat) holding = on
+  }
 
   const passwordNote = $derived(
     secure
@@ -151,7 +167,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={onKeydown} onblur={() => (holding = false)} />
 
 <div class="overlay">
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
@@ -201,12 +217,35 @@
             <li>Write these {words.length} words on paper, in order.</li>
             <li>Anyone who has them can take the funds in this wallet. Never type them into a website.</li>
             <li>The launcher does not save them and cannot show them again.</li>
+            {#if linux}
+              <li>
+                On Linux the launcher cannot keep this screen out of screenshots or screen recordings. Stop any screen
+                sharing or recording before you show the words.
+              </li>
+            {/if}
           </ul>
-          <ol class="words" aria-label="Seed phrase">
+          <ol class="words" class:masked aria-label="Seed phrase">
             {#each words as word, i (i)}
-              <li><span class="n mono">{i + 1}</span><span class="w mono">{word}</span></li>
+              <li><span class="n mono">{i + 1}</span><span class="w mono">{masked ? MASK : word}</span></li>
             {/each}
           </ol>
+          {#if linux}
+            <div class="reveal">
+              <button
+                type="button"
+                class="btn small"
+                disabled={unmasked}
+                onpointerdown={() => (holding = true)}
+                onpointerup={() => (holding = false)}
+                onpointerleave={() => (holding = false)}
+                onpointercancel={() => (holding = false)}
+                onkeydown={(e) => holdKey(e, true)}
+                onkeyup={(e) => holdKey(e, false)}
+                onblur={() => (holding = false)}>Hold to show words</button
+              >
+              <label class="check"><input type="checkbox" bind:checked={unmasked} /> Show the words without masking</label>
+            </div>
+          {/if}
           <label class="check"><input type="checkbox" bind:checked={wroteDown} /> I wrote down all {words.length} words</label>
           <button class="btn primary" onclick={pickChecks} disabled={!wroteDown}>Continue</button>
         </div>
@@ -375,8 +414,7 @@
     display: grid;
     place-items: center;
     padding: 24px;
-    background: rgba(4, 6, 13, 0.8);
-    backdrop-filter: blur(6px);
+    background: rgba(4, 6, 13, 0.88);
   }
 
   .dialog {
@@ -489,6 +527,23 @@
     color: var(--text-head);
     font-size: 13.5px;
     font-weight: 500;
+  }
+
+  .masked .w {
+    color: var(--muted);
+    filter: blur(3px);
+    user-select: none;
+  }
+
+  .reveal {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+  }
+
+  .reveal .btn {
+    user-select: none;
   }
 
   .checks {

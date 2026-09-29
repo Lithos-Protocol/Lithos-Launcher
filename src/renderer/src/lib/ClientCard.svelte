@@ -150,7 +150,7 @@
         </div>
         <div class="tile">
           <span class="tile-name"><span class="swatch lithos" aria-hidden="true"></span>Super shares</span>
-          <span class="tile-value num"><span class="flow-word">{stats?.superShares ?? 0}</span></span>
+          <span class="tile-value num"><span class="grad-word">{stats?.superShares ?? 0}</span></span>
           <span class="tile-sub">
             {stats?.superSharesPerHour ? `${stats.superSharesPerHour.toFixed(1)} per hour` : 'this session'}
           </span>

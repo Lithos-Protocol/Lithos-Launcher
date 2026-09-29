@@ -48,7 +48,7 @@
     <div class="brand">
       <img class="logo" class:alive={nodeUp} src={logo} alt="" width="40" height="40" />
       <div>
-        <h1>Lithos<span class="flow-word">Launcher</span></h1>
+        <h1>Lithos<span class="grad-word">Launcher</span></h1>
         <div class="micro">Ergo node · Lithos Client</div>
       </div>
     </div>
@@ -70,11 +70,21 @@
             {ui.vault.secure ? 'Keys · OS encrypted' : 'Keys · Session only'}
           </div>
         {/if}
-        <button class="btn small gear" onclick={() => (ui.dialog = 'settings')}>
+        <button class="btn small with-icon" onclick={() => (ui.dialog = 'settings')}>
           <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
             <path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4" />
           </svg>
           Settings
+        </button>
+        <button
+          class="btn small with-icon"
+          title="Stop the node and client safely, then quit"
+          onclick={() => void window.lithos.quit()}
+        >
+          <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+            <path d="M12 3v8M6.4 6.6a8 8 0 1 0 11.2 0" />
+          </svg>
+          Quit
         </button>
       </div>
     </div>
@@ -159,35 +169,16 @@
     margin-top: 3px;
   }
 
+  /*
+   * Deliberately still: the window is drawn in software, so any endless animation costs CPU on
+   * every frame for as long as the launcher is open. The glow warms to purple while the node runs.
+   */
   .logo {
     filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.35));
-    animation: float 6s ease-in-out infinite;
   }
 
   .logo.alive {
-    animation:
-      float 6s ease-in-out infinite,
-      beam 2.4s ease-in-out infinite;
-  }
-
-  @keyframes float {
-    0%,
-    100% {
-      transform: translateY(0) rotate(0deg);
-    }
-    50% {
-      transform: translateY(-3px) rotate(2deg);
-    }
-  }
-
-  @keyframes beam {
-    0%,
-    100% {
-      filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.35));
-    }
-    50% {
-      filter: drop-shadow(0 0 18px rgba(168, 85, 247, 0.75));
-    }
+    filter: drop-shadow(0 0 12px rgba(168, 85, 247, 0.6));
   }
 
   .spacer {
@@ -221,7 +212,7 @@
     box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
   }
 
-  .gear svg {
+  .with-icon svg {
     fill: none;
     stroke: currentColor;
     stroke-width: 2;

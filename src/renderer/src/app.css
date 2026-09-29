@@ -39,8 +39,7 @@
   --brand: linear-gradient(135deg, #38bdf8 0%, #818cf8 48%, #a855f7 100%);
   --grad-btn: linear-gradient(115deg, #0ea5e9, #38bdf8);
   --grad-purple: linear-gradient(115deg, #a855f7, #c084fc);
-  /* Both ends match, so the sweep loops without a seam. */
-  --grad-word: linear-gradient(90deg, #38bdf8 0%, #818cf8 25%, #a855f7 50%, #818cf8 75%, #38bdf8 100%);
+  --grad-word: linear-gradient(90deg, #38bdf8 0%, #818cf8 50%, #a855f7 100%);
 
   --radius-card: 18px;
   --radius: 12px;
@@ -190,24 +189,16 @@ button {
   border-color: rgba(168, 85, 247, 0.4);
 }
 
-/* A drifting gradient on the words and numbers that matter most. */
-.flow-word {
+/*
+ * A still gradient on the words and numbers that matter most. No endless animations anywhere:
+ * the window is drawn in software, so each one repaints on every frame while the launcher is open.
+ */
+.grad-word {
   background: var(--grad-word);
-  background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-  animation: flow-word 7s linear infinite;
-}
-
-@keyframes flow-word {
-  from {
-    background-position: 0% 50%;
-  }
-  to {
-    background-position: 200% 50%;
-  }
 }
 
 .btn {

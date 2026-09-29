@@ -7,7 +7,10 @@
 <span class="dot {status}" style:--size="{size}px" aria-hidden="true"></span>
 
 <style>
-  /* The Mining page's live-ness marker: the dot breathes while running and goes flat when not. */
+  /*
+   * The Mining page's live-ness marker: a lit dot with a halo while running, flat when not. It stays
+   * still (no breathing) so an idle launcher doesn't repaint every frame.
+   */
   .dot {
     display: inline-block;
     flex: none;
@@ -19,30 +22,21 @@
 
   .running {
     background: var(--mint);
-    animation: pulse 2.2s ease-out infinite;
+    box-shadow:
+      0 0 0 calc(var(--size) * 0.35) rgba(110, 231, 183, 0.18),
+      0 0 10px rgba(110, 231, 183, 0.45);
   }
 
   .starting,
   .stopping {
-    --ring: 251, 191, 36;
     background: var(--amber-light);
-    animation: pulse 1.2s ease-out infinite;
+    box-shadow:
+      0 0 0 calc(var(--size) * 0.35) rgba(251, 191, 36, 0.18),
+      0 0 10px rgba(251, 191, 36, 0.45);
   }
 
   .crashed {
     background: var(--red);
     box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
-  }
-
-  @keyframes pulse {
-    0% {
-      box-shadow: 0 0 0 0 rgba(var(--ring, 110, 231, 183), 0.55);
-    }
-    70% {
-      box-shadow: 0 0 0 calc(var(--size) * 0.8) rgba(var(--ring, 110, 231, 183), 0);
-    }
-    100% {
-      box-shadow: 0 0 0 0 rgba(var(--ring, 110, 231, 183), 0);
-    }
   }
 </style>

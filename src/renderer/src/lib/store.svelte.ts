@@ -64,6 +64,9 @@ export const ui = $state({
   dialog: null as 'difficulty' | 'commit' | 'miner' | 'shares' | 'settings' | 'import' | 'versions' | null,
   quickSetup: false,
   platform: '' as string,
+  /** False when Chromium's OS sandbox is off (the AppImage fallback); Settings says so. */
+  sandboxed: true,
+  appImage: false,
   /** Open wallet wizard, if any. */
   wizard: null as 'create' | 'restore' | 'keystore' | null,
   progress: {} as Partial<Record<TaskId, TaskProgress>>,
@@ -118,6 +121,8 @@ export async function init(): Promise<void> {
     api.getClientStats()
   ])
   ui.platform = app.platform
+  ui.sandboxed = app.sandboxed
+  ui.appImage = app.appImage
   ui.clientStats = stats
   ui.vault = app.vault
   ui.skipSyncGate = app.skipSyncGate

@@ -45,6 +45,8 @@ interface IpcContext {
   skipSyncGate: boolean
   /** Told when an unconfirmed seed phrase appears or goes, so closing can warn first. */
   onSensitive: (on: boolean) => void
+  /** Stops the node and client safely and quits, asking first if either runs. */
+  quit: () => Promise<void>
 }
 
 function asNetwork(value: unknown): Network {
@@ -164,7 +166,10 @@ export function registerIpc(ctx: IpcContext): void {
       vault: ctx.vault.info,
       skipSyncGate: ctx.skipSyncGate,
       lanAddresses: lanAddresses(),
-      platform: process.platform
+      platform: process.platform,
+      // The AppImage's wrapper adds --no-sandbox where Chromium's sandbox can't start (see the README).
+      sandboxed: !app.commandLine.hasSwitch('no-sandbox'),
+      appImage: process.platform === 'linux' && !!process.env.APPIMAGE
     })
   )
   handle(IPC.install, (n) => ctx.installer.install(asNetwork(n)))
@@ -400,6 +405,8 @@ export function registerIpc(ctx: IpcContext): void {
   handle(IPC.setSensitive, (on) => {
     const value = asBoolean(on)
     ctx.onSensitive(value)
+    // Windows and macOS only; on Linux the seed screen warns about screenshots instead.
     ctx.window()?.setContentProtection(value)
   })
+  handle(IPC.quit, () => ctx.quit())
 }

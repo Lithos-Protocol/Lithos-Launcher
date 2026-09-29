@@ -78,7 +78,7 @@
     </div>
 
     {#if step === 'welcome'}
-      <h2 id="qs-title">Let's get you mining on <span class="flow-word">Lithos</span></h2>
+      <h2 id="qs-title">Let's get you mining on <span class="grad-word">Lithos</span></h2>
       <p class="note">The launcher sets everything up for you:</p>
       <ol class="plan">
         <li>Downloads Java, the Ergo node and the Lithos Client (about 230 MB), checking each download.</li>

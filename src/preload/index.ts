@@ -55,6 +55,7 @@ const api: LauncherApi = {
   unlockWallet: (password, remember) => ipcRenderer.invoke(IPC.unlockWallet, password, remember),
   copyText: (text) => ipcRenderer.invoke(IPC.copyText, text),
   setSensitive: (on) => ipcRenderer.invoke(IPC.setSensitive, on),
+  quit: () => ipcRenderer.invoke(IPC.quit),
   onProgress: (cb) => subscribe(IPC.progress, cb),
   onProcState: (cb) => subscribe(IPC.procState, cb),
   onLogs: (cb) => subscribe(IPC.logs, cb),

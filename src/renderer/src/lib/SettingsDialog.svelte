@@ -192,6 +192,14 @@
     </div>
     <h2 id="settings-title">Advanced settings</h2>
 
+    {#if !ui.sandboxed}
+      <p class="warn-note">
+        {ui.appImage
+          ? "The AppImage started this window without Chromium's sandbox, because this system blocks what the sandbox needs. Install the .deb package to run it sandboxed."
+          : "This window was started with --no-sandbox, which turns off Chromium's sandbox. Start Lithos Launcher without that flag to run it sandboxed."}
+      </p>
+    {/if}
+
     {#if !info}
       <p class="note">Loading…</p>
     {:else}
