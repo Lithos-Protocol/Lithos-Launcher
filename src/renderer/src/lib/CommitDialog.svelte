@@ -80,6 +80,13 @@
         {#if balance === 0}<span class="warn">Fund the wallet first, or proofs will fail to build.</span>{/if}
       </div>
 
+      {#if settings?.forceConfigDiff}
+        <p class="warn-note">
+          The client is set to test mining, which sends no transactions: nothing is registered or committed, even with
+          auto-commit on, until you start it with Start client.
+        </p>
+      {/if}
+
       {#if settings?.autoCommit}
         <p class="note">
           Auto-commit is <b>on</b>. The client keeps your commitment equal to <b class="mono">{diff}</b>, sending changes

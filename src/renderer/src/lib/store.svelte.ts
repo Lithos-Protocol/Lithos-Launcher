@@ -15,7 +15,7 @@ import type {
   VaultInfo,
   WalletState
 } from '@shared/types'
-import { RateTracker } from './format'
+import { fmtPct, RateTracker } from './format'
 
 const NETWORK_KEY = 'lithos.network'
 const AUTOSTART_KEY = 'lithos.autoStartClient'
@@ -61,7 +61,18 @@ export const ui = $state({
   clientStats: null as ClientStats | null,
   /** Start the client by itself once everything it needs is ready. */
   autoStartClient: savedAutoStart(),
-  dialog: null as 'difficulty' | 'commit' | 'miner' | 'shares' | 'settings' | 'import' | 'versions' | null,
+  /** The user pressed Start and chose to wait for the wallet scan; starts once it catches up. */
+  startWhenWalletSynced: false,
+  dialog: null as
+    | 'difficulty'
+    | 'commit'
+    | 'miner'
+    | 'shares'
+    | 'settings'
+    | 'import'
+    | 'versions'
+    | 'walletSync'
+    | null,
   quickSetup: false,
   platform: '' as string,
   /** False when Chromium's OS sandbox is off (the AppImage fallback); Settings says so. */
@@ -264,9 +275,16 @@ export async function copyApiKey(network: Network, name: ApiKeyName): Promise<st
   }
 }
 
-export async function startClient(): Promise<void> {
+/**
+ * Starts the client. `testMode` picks test mining (no transactions) or real mining and is saved
+ * with the other client settings; left out, the client runs the way it last did.
+ */
+export async function startClient(testMode?: boolean): Promise<void> {
   ui.clientError = null
   try {
+    if (testMode !== undefined && ui.clientSettings?.forceConfigDiff !== testMode) {
+      ui.clientSettings = await api.setClientSettings(ui.network, { forceConfigDiff: testMode })
+    }
     await api.startClient(ui.network)
   } catch (err) {
     ui.clientError = errorText(err)
@@ -322,12 +340,30 @@ export interface Requirement {
   label: string
   ok: boolean
   note: string
+  /** Real mining waits for it (or asks); test mining, which sends no transactions, doesn't need it. */
+  soft?: boolean
+}
+
+/** Blocks the wallet may trail the chain by and still count as caught up. */
+const WALLET_SLACK_BLOCKS = 3
+
+/**
+ * How far the unlocked wallet has scanned while it trails the chain: after a restore or keystore
+ * import it rescans the whole chain. Null once caught up, or while its height isn't known.
+ */
+export function walletScan(): { height: number; tip: number } | null {
+  const w = ui.wallet
+  const tip = ui.info?.fullHeight ?? null
+  if (w.phase !== 'unlocked' || w.walletHeight === null || tip === null) return null
+  return w.walletHeight < tip - WALLET_SLACK_BLOCKS ? { height: w.walletHeight, tip } : null
 }
 
 /** What the Lithos Client needs before it can start on the selected network. */
 export function clientRequirements(): Requirement[] {
   const nodeUp = ui.node.status === 'running' && ui.node.network === ui.network
   const synced = nodeUp && ui.info !== null && syncView(ui.info).stage === 'synced'
+  const unlocked = ui.wallet.phase === 'unlocked' && ui.wallet.network === ui.network
+  const scan = walletScan()
   return [
     { label: 'Client installed', ok: ui.net?.client.installed ?? false, note: '' },
     { label: 'Node running', ok: nodeUp, note: '' },
@@ -336,7 +372,21 @@ export function clientRequirements(): Requirement[] {
       ok: synced || (ui.skipSyncGate && nodeUp),
       note: ui.skipSyncGate && !synced ? 'skipped (dev)' : ''
     },
-    { label: 'Wallet unlocked', ok: ui.wallet.phase === 'unlocked' && ui.wallet.network === ui.network, note: '' },
+    { label: 'Wallet unlocked', ok: unlocked, note: '' },
+    // The client funds bonds and fees from this wallet; until the scan reaches the tip the node
+    // doesn't know all of its boxes.
+    {
+      label: 'Wallet synced',
+      ok: unlocked && ui.wallet.walletHeight !== null && scan === null,
+      note: scan ? `scanning, ${fmtPct(scan.height / scan.tip)}` : '',
+      soft: true
+    },
     { label: 'Difficulty chosen', ok: Boolean(ui.clientSettings?.diff), note: '' }
   ]
+}
+
+/** The Start button (real mining): straight away if the wallet has caught up, otherwise ask whether to wait. */
+export function requestStartClient(): void {
+  if (clientRequirements().every((r) => r.ok)) void startClient(false)
+  else ui.dialog = 'walletSync'
 }

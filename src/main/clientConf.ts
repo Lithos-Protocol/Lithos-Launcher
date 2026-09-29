@@ -25,8 +25,23 @@ const KEYS = {
   reductionMultiplier: 'stratum.reductionMultiplier'
 } as const
 
+/**
+ * Test mining (forceConfigDiff) sends no transactions: no rollup transactions, registration or
+ * commitment (disableTransforms), no emission or self-collateral transactions, no DEX broadcasts,
+ * and nothing extra in a block it finds (the genesis transaction still works). Self-collateral and
+ * broadcasts are off by default; test mining pins them off.
+ */
+export const TEST_MODE_LINES: Record<string, string> = {
+  'state.disableTransforms': 'true',
+  'emission.enabled': 'false',
+  'emission.autoCollateralize': 'false',
+  'batching.ergodex.broadcast': 'false',
+  'batching.lithosdex.broadcast': 'false',
+  'stratum.candidate.blockTransactions': 'false'
+}
+
 /** What the launcher relies on or sets from its own UI; custom settings that change these are flagged. */
-export const MANAGED_CLIENT_KEYS = [
+const BASE_MANAGED_KEYS = [
   'node.url',
   'node.key',
   'node.pass',
@@ -38,7 +53,12 @@ export const MANAGED_CLIENT_KEYS = [
   'lithos.apiKeyHash',
   'stratum.reduceShareMessages',
   ...Object.values(KEYS)
-] as const
+]
+
+/** The managed keys for these settings: in test mode, also the switches it pins off. */
+export function managedClientKeys(settings: ClientSettings): string[] {
+  return settings.forceConfigDiff ? [...BASE_MANAGED_KEYS, ...Object.keys(TEST_MODE_LINES)] : BASE_MANAGED_KEYS
+}
 
 const LOCAL_ADDRESS = '127.0.0.1'
 const ALL_ADDRESSES = '0.0.0.0'
@@ -166,6 +186,7 @@ function clientBlock(c: ClientConf): string[] {
   lines.push('stratum.reduceShareMessages = true', `${KEYS.reductionMultiplier} = ${s.reductionMultiplier}`)
   // Registration and commitment are on-chain and lock the difficulty for 845 blocks: opt-in only.
   lines.push(`${KEYS.autoCommit} = ${s.autoCommit}`, `${KEYS.forceConfigDiff} = ${s.forceConfigDiff}`)
+  if (s.forceConfigDiff) lines.push(...Object.entries(TEST_MODE_LINES).map(([key, value]) => `${key} = ${value}`))
   return lines
 }
 

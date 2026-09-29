@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { hostname } from 'node:os'
 import { syncView } from '@shared/sync'
 import type { ClientStats, Network } from '@shared/types'
-import { CLIENT_ENV, MANAGED_CLIENT_KEYS, readClientSettings, writeClientConf } from './clientConf'
+import { CLIENT_ENV, managedClientKeys, readClientSettings, TEST_MODE_LINES, writeClientConf } from './clientConf'
 import { diagnose } from './diagnose'
 import { interrupt } from './interrupt'
 import { detectJre } from './java'
@@ -116,7 +116,17 @@ export class ClientController {
         settings,
         lanHosts: [...lan, hostname()]
       })
-      const overrides = await customOverrides(layout.clientConf(this.root, network), MANAGED_CLIENT_KEYS).catch(() => [])
+      const overrides = await customOverrides(layout.clientConf(this.root, network), managedClientKeys(settings)).catch(
+        () => []
+      )
+      // Test mode promises nothing reaches the chain; a hand edit below the block would decide that instead.
+      const contested = settings.forceConfigDiff ? overrides.filter((key) => key in TEST_MODE_LINES) : []
+      if (contested.length) {
+        throw new Error(
+          `Test mining keeps transactions off, but lithos.conf sets ${contested.join(', ')} below the launcher's ` +
+            'block, where it wins. Remove those lines, or use Start client for real mining.'
+        )
+      }
       if (overrides.length) {
         this.proc.log(
           `Warning: lithos.conf overrides settings the launcher manages (${overrides.join(', ')}). ` +
@@ -157,9 +167,11 @@ export class ClientController {
         this.proc.log(`The panel is open to your network: ${lan.map((a) => `http://${a}:${ports.http}`).join('  ')}`)
       }
       this.proc.log(
-        settings.autoCommit
-          ? `Difficulty ${settings.diff}, auto-commit on`
-          : `Difficulty ${settings.diff}, auto-commit off (not registered on chain, so no payouts yet)`
+        settings.forceConfigDiff
+          ? `Test mining at ${settings.diff}: transforms, emissions, broadcasts and block transactions are off, so no transactions are sent`
+          : settings.autoCommit
+            ? `Difficulty ${settings.diff}, auto-commit on`
+            : `Difficulty ${settings.diff}, auto-commit off (not registered on chain, so no payouts yet)`
       )
       this.startStats(ports.http)
     } catch (err) {

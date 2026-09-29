@@ -7,6 +7,7 @@
     copyApiKey,
     copyText,
     openLithosPanel,
+    requestStartClient,
     setAutoStartClient,
     startClient,
     stopClient,
@@ -29,7 +30,9 @@
   const running = $derived(status === 'running')
   const shownNetwork = $derived(active && ui.client.network ? ui.client.network : ui.network)
   const requirements = $derived(clientRequirements())
-  const ready = $derived(requirements.every((r) => r.ok))
+  // Soft requirements (the wallet scan) don't block the button; pressing it asks whether to wait.
+  const ready = $derived(requirements.every((r) => r.ok || r.soft))
+  const waiting = $derived(ui.startWhenWalletSynced && !active)
   const settings = $derived(ui.clientSettings)
   const stats = $derived(running ? ui.clientStats : null)
 
@@ -55,6 +58,7 @@
     if (stats?.pending) {
       return { value: score(stats.pending), text: `Takes effect at block ${stats.pendingFromHeight ?? '?'}`, ok: false }
     }
+    if (settings?.forceConfigDiff) return { value: '—', text: 'Paused while test mining', ok: false }
     if (settings?.autoCommit) return { value: '—', text: running ? 'Auto-commit on, registering…' : 'Auto-commit on', ok: false }
     return { value: '—', text: 'Not committed', ok: false }
   })
@@ -63,7 +67,8 @@
   const warnings = $derived.by((): string[] => {
     if (!running) return []
     const list: string[] = []
-    if (!settings?.autoCommit && !stats?.committed) {
+    const testMode = Boolean(settings?.forceConfigDiff || stats?.forcedConfig)
+    if (!testMode && !settings?.autoCommit && !stats?.committed) {
       list.push('Mining, but not committed on chain: no payouts until you commit your difficulty.')
     }
     if (ui.wallet.balanceNanoErg === 0) {
@@ -75,7 +80,11 @@
         'Rig connected, no hashrate yet: with super-shares-only reporting a reading can take a while. Adjust Share reporting to 100× for a quicker one.'
       )
     }
-    if (stats?.forcedConfig) list.push('Test mode (forceConfigDiff) is on: proofs at an uncommitted difficulty are rejected.')
+    if (testMode) {
+      list.push(
+        'Test mining: the client sends no transactions (no proofs, commitment or emissions), so this mining earns nothing. Use Start client to mine for real.'
+      )
+    }
     return list
   })
 
@@ -118,8 +127,10 @@
       <div class="status">
         <StatusDot {status} size={10} />
         <div>
-          <div class="status-text">{STATUS_TEXT[status]}</div>
-          {#if ui.client.detail}
+          <div class="status-text">{running && settings?.forceConfigDiff ? 'Test mining' : STATUS_TEXT[status]}</div>
+          {#if waiting}
+            <div class="detail">Starts once the wallet has caught up</div>
+          {:else if ui.client.detail}
             <div class="detail">{ui.client.detail}</div>
           {/if}
         </div>
@@ -130,7 +141,19 @@
             {status === 'stopping' ? 'Stopping…' : 'Stop client'}
           </button>
         {:else}
-          <button class="btn primary" onclick={startClient} disabled={!ready}>Start client</button>
+          {#if waiting}
+            <button class="btn" onclick={() => (ui.startWhenWalletSynced = false)}>Cancel start</button>
+          {:else}
+            <button class="btn primary" onclick={requestStartClient} disabled={!ready}>Start client</button>
+          {/if}
+          <button
+            class="btn"
+            onclick={() => startClient(true)}
+            disabled={!ready}
+            title="Mine at your chosen difficulty with no transactions sent: nothing is committed, proven or paid"
+          >
+            Test mining
+          </button>
         {/if}
         <button class="btn" onclick={openLithosPanel} disabled={!running}>Lithos panel ↗</button>
       </div>

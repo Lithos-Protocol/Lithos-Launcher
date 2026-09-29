@@ -2,7 +2,7 @@
   import { bondErg, parseConfigDiff } from '@shared/mining'
   import { fmtErg, fmtInt, fmtPct, shortAddress } from './format'
   import ProgressBar from './ProgressBar.svelte'
-  import { copyText, ui, unlockWallet } from './store.svelte'
+  import { copyText, ui, unlockWallet, walletScan } from './store.svelte'
 
   let password = $state('')
   let remember = $state(true)
@@ -14,10 +14,7 @@
   const diffValue = $derived(parseConfigDiff(ui.clientSettings?.diff))
   const bond = $derived(diffValue ? bondErg(diffValue) : null)
   // A restored or imported wallet scans the whole chain for its history; show how far it has got.
-  const chainHeight = $derived(ui.info?.fullHeight ?? null)
-  const scanning = $derived(
-    w.phase === 'unlocked' && w.walletHeight !== null && chainHeight !== null && w.walletHeight < chainHeight - 3
-  )
+  const scan = $derived(walletScan())
   const balance = $derived(w.balanceNanoErg === null ? null : fmtErg(w.balanceNanoErg).split('.'))
 
   async function unlock(event: SubmitEvent): Promise<void> {
@@ -105,20 +102,20 @@
         <code class="mono" title={w.address ?? ''}>{w.address ? shortAddress(w.address) : '—'}</code>
         <button class="btn small" onclick={copy} disabled={!w.address}>{copied ? 'Copied' : 'Copy'}</button>
       </div>
-      {#if scanning && w.walletHeight !== null && chainHeight !== null}
+      {#if scan}
         <div class="scan">
           <div class="scan-head">
             <span class="micro">Scanning history</span>
-            <span class="num">{fmtPct(w.walletHeight / chainHeight)}</span>
+            <span class="num">{fmtPct(scan.height / scan.tip)}</span>
           </div>
-          <ProgressBar value={w.walletHeight / chainHeight} label="Wallet scan" tone="you" />
+          <ProgressBar value={scan.height / scan.tip} label="Wallet scan" tone="you" />
           <span class="sub">
-            Block <span class="num">{fmtInt(w.walletHeight)}</span> of <span class="num">{fmtInt(chainHeight)}</span>.
-            The balance fills in as it goes.
+            Block <span class="num">{fmtInt(scan.height)}</span> of <span class="num">{fmtInt(scan.tip)}</span>. The
+            balance fills in as it goes.
           </span>
         </div>
       {/if}
-      {#if w.balanceNanoErg === 0 && !scanning}
+      {#if w.balanceNanoErg === 0 && !scan}
         <p class="warn-note">
           Send some ERG to this address. Each proof you submit posts a small refundable bond{bond
             ? ` (${bond.toFixed(4)} ERG at your difficulty)`

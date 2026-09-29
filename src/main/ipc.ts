@@ -19,7 +19,7 @@ import {
   type NodeSettingsPatch,
   type ProcId
 } from '@shared/types'
-import { MANAGED_CLIENT_KEYS, readClientSettings, updateClientSettings } from './clientConf'
+import { managedClientKeys, readClientSettings, updateClientSettings } from './clientConf'
 import type { ClientController } from './clientController'
 import { MANAGED_NODE_KEYS, readNodeSettings, updateNodeSettings } from './ergoConf'
 import type { Importer } from './importer'
@@ -292,7 +292,10 @@ export function registerIpc(ctx: IpcContext): void {
     return {
       files: {
         node: await configFile(configPath(network, 'node'), MANAGED_NODE_KEYS),
-        client: await configFile(configPath(network, 'client'), MANAGED_CLIENT_KEYS)
+        client: await configFile(
+          configPath(network, 'client'),
+          managedClientKeys(await readClientSettings(ctx.root, network))
+        )
       }
     }
   })

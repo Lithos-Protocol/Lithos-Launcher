@@ -15,6 +15,7 @@
   import SetupCard from './lib/SetupCard.svelte'
   import VersionsDialog from './lib/VersionsDialog.svelte'
   import WalletCard from './lib/WalletCard.svelte'
+  import WalletSyncDialog from './lib/WalletSyncDialog.svelte'
   import WalletWizard from './lib/WalletWizard.svelte'
   import { clientRequirements, init, startClient, ui } from './lib/store.svelte'
 
@@ -26,17 +27,27 @@
 
   const nodeUp = $derived(ui.node.status === 'running')
 
-  // Start the client by itself once everything it needs is ready: at most once per node run,
-  // and never after a crash or after the user stopped it.
+  // Start the client by itself once everything it needs is ready: at most once per node run, never
+  // after a crash or after the user stopped it, and in whichever mode it last ran. Real mining also
+  // waits for the wallet to catch up. A Start the user chose to hold until then goes through here
+  // too (as real mining), and lapses if the node stops.
   let autoStartedFor: number | null = null
   $effect(() => {
     const nodePid = ui.node.status === 'running' ? ui.node.pid : null
-    if (nodePid === null) {
-      autoStartedFor = null
+    if (nodePid === null || ui.client.status !== 'stopped') {
+      if (nodePid === null) autoStartedFor = null
+      ui.startWhenWalletSynced = false
       return
     }
-    const ready = clientRequirements().every((r) => r.ok)
-    if (ui.autoStartClient && ready && ui.client.status === 'stopped' && autoStartedFor !== nodePid) {
+    const requirements = clientRequirements()
+    const testMode = ui.clientSettings?.forceConfigDiff ?? false
+    if (ui.startWhenWalletSynced) {
+      if (requirements.every((r) => r.ok)) {
+        autoStartedFor = nodePid
+        ui.startWhenWalletSynced = false
+        void startClient(false)
+      }
+    } else if (ui.autoStartClient && autoStartedFor !== nodePid && requirements.every((r) => r.ok || (r.soft && testMode))) {
       autoStartedFor = nodePid
       void startClient()
     }
@@ -128,6 +139,8 @@
   <ImportDialog />
 {:else if ui.dialog === 'versions'}
   <VersionsDialog />
+{:else if ui.dialog === 'walletSync'}
+  <WalletSyncDialog />
 {/if}
 
 {#if ui.wizard}

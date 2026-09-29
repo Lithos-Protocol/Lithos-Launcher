@@ -24,7 +24,6 @@
   let httpPort = $state('')
   let stratumPort = $state('')
   let multiplier = $state<number>(DEFAULT_REDUCTION_MULTIPLIER)
-  let testMode = $state(false)
   let lanPanel = $state(false)
   let config = $state<NetworkConfigInfo | null>(null)
   /** The key being replaced: with a new random one, or with one the user types. */
@@ -67,7 +66,6 @@
     httpPort = String(s.httpPort)
     stratumPort = String(s.stratumPort)
     multiplier = s.reductionMultiplier
-    testMode = s.forceConfigDiff
     lanPanel = s.lanPanel
   }
 
@@ -133,7 +131,6 @@
         httpPort: Number(httpPort),
         stratumPort: Number(stratumPort),
         reductionMultiplier: multiplier,
-        forceConfigDiff: testMode,
         lanPanel
       })
       if (err) throw new Error(err)
@@ -315,15 +312,6 @@
             trust.{ui.platform === 'win32'
               ? ' If Windows asks whether Java may use the network, allow it on private networks.'
               : ''}
-          </p>
-        {/if}
-        <label class="check">
-          <input type="checkbox" bind:checked={testMode} />
-          Test mode: mine at the configured difficulty without committing it (forceConfigDiff)
-        </label>
-        {#if testMode}
-          <p class="warn-note">
-            Turn this off before mining for real: proofs at a difficulty below your commitment are rejected.
           </p>
         {/if}
         <div class="row">
