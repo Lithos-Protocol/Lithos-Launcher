@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { addressForNetwork } from '@shared/address'
   import { fmtConfigDiff, recommendedBalanceNanoErg } from '@shared/mining'
   import QRCode from 'qrcode'
   import { fmtErg, fmtInt, fmtPct, shortAddress } from './format'
@@ -16,13 +17,27 @@
 
   const w = $derived(ui.wallet)
   const secure = $derived(ui.vault?.secure ?? false)
+  // Ignore a wallet snapshot that still belongs to the other network.
+  const onNetwork = $derived(w.network === ui.network)
+  const phase = $derived(onNetwork || w.network === null ? w.phase : 'unavailable')
+  const address = $derived(
+    !w.address
+      ? null
+      : ui.shareWalletAcrossNetworks
+        ? addressForNetwork(w.address, ui.network)
+        : onNetwork
+          ? w.address
+          : null
+  )
+  const balanceNanoErg = $derived(onNetwork ? w.balanceNanoErg : null)
+  const sameKey = $derived(ui.shareWalletAcrossNetworks && (Boolean(address) || w.hasPeerWallet))
   // A restored or imported wallet scans the whole chain for its history; show how far it has got.
-  const scan = $derived(walletScan())
-  const balance = $derived(w.balanceNanoErg === null ? null : fmtErg(w.balanceNanoErg).split('.'))
+  const scan = $derived(onNetwork ? walletScan() : null)
+  const balance = $derived(balanceNanoErg === null ? null : fmtErg(balanceNanoErg).split('.'))
   const target = $derived(miningBalanceTarget())
   // Name the difficulty only when it's what pushed the target above the floor.
   const scaled = $derived(target.nanoErg > recommendedBalanceNanoErg(null) && target.diff !== null)
-  const low = $derived(w.balanceNanoErg !== null && w.balanceNanoErg < target.nanoErg)
+  const low = $derived(balanceNanoErg !== null && balanceNanoErg < target.nanoErg)
 
   async function unlock(event: SubmitEvent): Promise<void> {
     event.preventDefault()
@@ -37,19 +52,19 @@
 
   /** `from` is the button that was clicked, so only that one says "Copied". */
   async function copy(from: 'card' | 'dialog'): Promise<void> {
-    if (!w.address) return
-    await copyText(w.address)
+    if (!address) return
+    await copyText(address)
     copied = from
     setTimeout(() => (copied = null), 1500)
   }
 
   async function openQr(): Promise<void> {
-    if (!w.address) return
+    if (!address) return
     qrError = null
     qrDataUrl = null
     showQr = true
     try {
-      qrDataUrl = await QRCode.toDataURL(w.address, {
+      qrDataUrl = await QRCode.toDataURL(address, {
         errorCorrectionLevel: 'M',
         margin: 2,
         width: 280,
@@ -72,30 +87,56 @@
     <h2 class="card-title" id="wallet-title">
       <span class="swatch you" aria-hidden="true"></span>Wallet<span class="no">03</span>
     </h2>
-    {#if w.phase === 'unlocked'}
+    {#if phase === 'unlocked'}
       <span class="badge micro ok"><span class="dot" aria-hidden="true"></span>Unlocked</span>
-    {:else if w.phase === 'locked' || w.phase === 'unlocking'}
+    {:else if phase === 'locked' || phase === 'unlocking'}
       <span class="badge micro warn"><span class="dot" aria-hidden="true"></span>Locked</span>
     {/if}
   </div>
 
   <div class="body">
-    {#if w.phase === 'unavailable'}
+    {#if phase === 'unavailable' && !address}
       <p class="note">Start the node to create or unlock the wallet Lithos mines with.</p>
-    {:else if w.phase === 'uninitialized'}
+    {:else if phase === 'unavailable'}
+      {@render balanceRow()}
+      {@render addressRow()}
       <p class="note">
-        This node has no wallet yet. The Lithos Client signs its mining transactions with it, so use a wallet made
-        just for mining.
+        {#if ui.shareWalletAcrossNetworks}
+          This is the same key on {ui.network}. Mainnet addresses start with 9 and testnet addresses start with 3.
+        {:else}
+          Mining wallet for {ui.network}.
+        {/if}
+        {#if ui.node.status === 'running' && ui.node.network === ui.network}
+          Reading the balance…
+        {:else}
+          Start the {ui.network} node to read the balance.
+        {/if}
       </p>
-      <button class="btn primary" onclick={() => (ui.wizard = 'create')}>Create a new wallet</button>
+    {:else if phase === 'uninitialized'}
+      <p class="note">
+        {#if sameKey}
+          This node has no wallet yet. Restore the same seed phrase you already use, or the keystore from your other
+          network. The key stays the same on {ui.network}.
+        {:else}
+          This node has no wallet yet. The Lithos Client signs its mining transactions with it, so use a wallet made
+          just for mining.
+        {/if}
+      </p>
+      {#if address}{@render addressRow()}{/if}
+      {#if !sameKey}
+        <button class="btn primary" onclick={() => (ui.wizard = 'create')}>Create a new wallet</button>
+      {/if}
       <div class="actions">
-        <button class="btn" onclick={() => (ui.wizard = 'restore')}>Restore seed phrase</button>
+        <button class="btn" class:primary={sameKey} onclick={() => (ui.wizard = 'restore')}>
+          {sameKey ? 'Restore the same seed phrase' : 'Restore seed phrase'}
+        </button>
         <button class="btn" onclick={() => (ui.wizard = 'keystore')}>Use keystore file</button>
       </div>
-    {:else if w.phase === 'unlocking'}
+    {:else if phase === 'unlocking'}
       <p class="note">Unlocking the wallet…</p>
       <ProgressBar value={null} label="Unlocking wallet" />
-    {:else if w.phase === 'locked'}
+    {:else if phase === 'locked'}
+      {#if address}{@render addressRow()}{/if}
       <form class="unlock" onsubmit={unlock}>
         <div class="field">
           <label class="micro" for="wallet-password">Wallet password</label>
@@ -120,24 +161,8 @@
         <button class="btn primary" type="submit" disabled={!password}>Unlock wallet</button>
       </form>
     {:else}
-      <div class="balance">
-        <span class="micro">Balance</span>
-        <span class="big num" class:low>
-          {#if balance}{balance[0]}{#if balance[1]}<span class="dec">.{balance[1]}</span>{/if}{:else}—{/if}<span
-            class="unit">ERG</span
-          >
-        </span>
-      </div>
-      <div class="address well">
-        <span class="micro">Address</span>
-        <code class="mono" title={w.address ?? ''}>{w.address ? shortAddress(w.address) : '—'}</code>
-        <div class="addr-actions">
-          <button class="btn small" onclick={openQr} disabled={!w.address} aria-haspopup="dialog">QR</button>
-          <button class="btn small" onclick={() => copy('card')} disabled={!w.address}>
-            {copied === 'card' ? 'Copied' : 'Copy'}
-          </button>
-        </div>
-      </div>
+      {@render balanceRow()}
+      {@render addressRow()}
       {#if scan}
         <div class="scan">
           <div class="scan-head">
@@ -172,7 +197,31 @@
   </div>
 </section>
 
-{#if showQr && w.address}
+{#snippet balanceRow()}
+  <div class="balance">
+    <span class="micro">Balance</span>
+    <span class="big num" class:low>
+      {#if balance}{balance[0]}{#if balance[1]}<span class="dec">.{balance[1]}</span>{/if}{:else}—{/if}<span class="unit"
+        >ERG</span
+      >
+    </span>
+  </div>
+{/snippet}
+
+{#snippet addressRow()}
+  <div class="address well">
+    <span class="micro">Address</span>
+    <code class="mono" title={address ?? ''}>{address ? shortAddress(address) : '—'}</code>
+    <div class="addr-actions">
+      <button class="btn small" onclick={openQr} disabled={!address} aria-haspopup="dialog">QR</button>
+      <button class="btn small" onclick={() => copy('card')} disabled={!address}>
+        {copied === 'card' ? 'Copied' : 'Copy'}
+      </button>
+    </div>
+  </div>
+{/snippet}
+
+{#if showQr && address}
   <Modal labelledby="wallet-qr-title" onclose={closeQr} width={420}>
     <div class="content">
       <div class="top">
@@ -190,7 +239,7 @@
           <p class="note">Generating QR…</p>
         {/if}
       </div>
-      <code class="mono full-addr">{w.address}</code>
+      <code class="mono full-addr">{address}</code>
       <div class="footer">
         <button class="btn small" onclick={() => copy('dialog')}>{copied === 'dialog' ? 'Copied' : 'Copy address'}</button>
         <button class="btn primary" onclick={closeQr}>Done</button>

@@ -28,7 +28,7 @@ import { autoHeap, defaultRoot, heapPlan, layout } from './layout'
 import { customOverrides } from './managedBlock'
 import type { NodeController } from './nodeController'
 import { copySecret } from './secretClipboard'
-import { settings, updateSettings } from './settings'
+import { settings, shareWalletAcrossNetworks, updateSettings } from './settings'
 import { lanAddresses, systemCheck } from './system'
 import type { Vault } from './vault'
 import type { WalletManager } from './wallet'
@@ -136,7 +136,8 @@ function launcherInfo(root: string): LauncherInfo {
     heap: heapPlan(),
     autoHeap: autoHeap(),
     heapOverridden: { node: heap?.nodeMb !== undefined, client: heap?.clientMb !== undefined },
-    dataDirs: { ...settings().dataDirs }
+    dataDirs: { ...settings().dataDirs },
+    shareWalletAcrossNetworks: shareWalletAcrossNetworks()
   }
 }
 
@@ -172,7 +173,8 @@ export function registerIpc(ctx: IpcContext): void {
       platform: process.platform,
       // The AppImage's wrapper adds --no-sandbox where Chromium's sandbox can't start (see the README).
       sandboxed: !app.commandLine.hasSwitch('no-sandbox'),
-      appImage: process.platform === 'linux' && !!process.env.APPIMAGE
+      appImage: process.platform === 'linux' && !!process.env.APPIMAGE,
+      shareWalletAcrossNetworks: shareWalletAcrossNetworks()
     })
   )
   handle(IPC.install, (n) => ctx.installer.install(asNetwork(n)))
@@ -256,6 +258,14 @@ export function registerIpc(ctx: IpcContext): void {
       }
       if (!s.heap.nodeMb && !s.heap.clientMb) delete s.heap
     })
+    return launcherInfo(ctx.root)
+  })
+  handle(IPC.setShareWalletAcrossNetworks, async (on) => {
+    await updateSettings((s) => {
+      if (asBoolean(on)) s.shareWalletAcrossNetworks = true
+      else delete s.shareWalletAcrossNetworks
+    })
+    await ctx.wallet.applySharePreference()
     return launcherInfo(ctx.root)
   })
   handle(IPC.chooseInstallRoot, async () => {
@@ -385,6 +395,7 @@ export function registerIpc(ctx: IpcContext): void {
   })
 
   handle(IPC.getWallet, () => ctx.wallet.state)
+  handle(IPC.focusWallet, (n) => ctx.wallet.focus(asNetwork(n)))
   handle(IPC.createWallet, (password) => ctx.wallet.create(asString(password, 256)))
   handle(IPC.restoreWallet, (mnemonic, password) =>
     ctx.wallet.restore(asString(mnemonic, 1000), asString(password, 256))

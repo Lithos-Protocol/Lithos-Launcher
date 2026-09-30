@@ -90,8 +90,16 @@ export interface WalletState {
   /** Network of the running node, or null when no node is running. */
   network: Network | null
   phase: WalletPhase
-  /** The wallet's change address; only known while unlocked. */
+  /**
+   * P2PK address of the same key on `network`: mainnet starts with 9, testnet with 3.
+   * Null until a node has reported the key. Not a seed.
+   */
   address: string | null
+  /**
+   * Another network already has a node keystore for this mining key.
+   * Creating a new wallet here would make a different key; restore or reuse instead.
+   */
+  hasPeerWallet: boolean
   /** The launcher holds this wallet's password (saved, or for this session only). */
   passwordKnown: boolean
   /** Confirmed balance in nanoERG while unlocked, else null. */
@@ -221,6 +229,11 @@ export interface LauncherInfo {
   heapOverridden: { node: boolean; client: boolean }
   /** Adopted node data folders, by network. */
   dataDirs: Partial<Record<Network, string>>
+  /**
+   * One mining key on mainnet and testnet (same seed; addresses rewrite 9… ↔ 3…).
+   * Off by default so testnet can keep a separate, less-trusted wallet.
+   */
+  shareWalletAcrossNetworks: boolean
 }
 
 /** The node's REST API key, or the Lithos Client's own API key. */
@@ -294,6 +307,8 @@ export interface AppInfo {
   sandboxed: boolean
   /** Running from an AppImage, where the .deb is the sandboxed alternative. */
   appImage: boolean
+  /** One mining key across networks when true; see LauncherInfo.shareWalletAcrossNetworks. */
+  shareWalletAcrossNetworks: boolean
 }
 
 export interface LauncherApi {
@@ -335,6 +350,11 @@ export interface LauncherApi {
   getLauncherInfo(): Promise<LauncherInfo>
   /** null resets a size to automatic. Takes effect on the next start. */
   setHeap(heap: { nodeMb: number | null; clientMb: number | null }): Promise<LauncherInfo>
+  /**
+   * One mining key on both networks when true; separate keys when false.
+   * Turning it on may copy the other network's keystore onto an empty node.
+   */
+  setShareWalletAcrossNetworks(on: boolean): Promise<LauncherInfo>
   /** Opens a folder picker; the app restarts in the new folder. Resolves false if cancelled. */
   chooseInstallRoot(): Promise<boolean>
   resetInstallRoot(): Promise<void>
@@ -356,6 +376,8 @@ export interface LauncherApi {
   /** Replaces the plaintext key/password in the last inspected old lithos.conf with env references. */
   scrubOldSecrets(network: Network): Promise<void>
   getWallet(): Promise<WalletState>
+  /** Points wallet reads and writes at this network's node, and returns that wallet. */
+  focusWallet(network: Network): Promise<WalletState>
   /** Creates the node wallet and returns its seed words. They are shown once and never stored. */
   createWallet(password: string): Promise<string[]>
   restoreWallet(mnemonic: string, password: string): Promise<void>
@@ -410,6 +432,7 @@ export const IPC = {
   openLink: 'launcher:open-link',
   getLauncherInfo: 'launcher:get-info',
   setHeap: 'launcher:set-heap',
+  setShareWalletAcrossNetworks: 'launcher:set-share-wallet',
   chooseInstallRoot: 'launcher:choose-root',
   resetInstallRoot: 'launcher:reset-root',
   pickFolder: 'launcher:pick-folder',
@@ -422,6 +445,7 @@ export const IPC = {
   clearImport: 'import:clear',
   scrubOldSecrets: 'import:scrub-secrets',
   getWallet: 'wallet:get',
+  focusWallet: 'wallet:focus',
   createWallet: 'wallet:create',
   restoreWallet: 'wallet:restore',
   pickKeystore: 'wallet:pick-keystore',

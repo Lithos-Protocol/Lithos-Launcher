@@ -15,7 +15,7 @@
     type NetworkConfigInfo
   } from '@shared/types'
   import Modal from './Modal.svelte'
-  import { errorText, refresh, restartClient, saveClientSettings, ui } from './store.svelte'
+  import { errorText, refresh, restartClient, saveClientSettings, setShareWalletAcrossNetworks, ui } from './store.svelte'
 
   const api = window.lithos
   const network = ui.network
@@ -29,6 +29,7 @@
   let stratumPort = $state('')
   let multiplier = $state<number>(DEFAULT_REDUCTION_MULTIPLIER)
   let lanPanel = $state(false)
+  let shareWallet = $state(ui.shareWalletAcrossNetworks)
   let config = $state<NetworkConfigInfo | null>(null)
   /** The key being replaced: with a new random one, or with one the user types. */
   let editing = $state<{ name: ApiKeyName; mode: 'new' | 'set' } | null>(null)
@@ -86,6 +87,7 @@
       offlineGeneration = node.offlineGeneration
       apiPort = String(node.apiPort)
       p2pPort = String(node.p2pPort)
+      shareWallet = info.shareWalletAcrossNetworks
       loadClientFields()
     })()
     // Coming back from an editor: pick up what changed in the config files.
@@ -138,6 +140,16 @@
       return nodeRunningHere
         ? 'Saved. Restart the node for it to take effect.'
         : 'Saved. The node uses this the next time it starts.'
+    })
+
+  const saveShareWallet = (): Promise<void> =>
+    run(async () => {
+      await setShareWalletAcrossNetworks(shareWallet)
+      info = await api.getLauncherInfo()
+      shareWallet = info.shareWalletAcrossNetworks
+      return shareWallet
+        ? 'Saved. The same mining key is used on mainnet and testnet (addresses rewrite 9… ↔ 3…).'
+        : 'Saved. Mainnet and testnet keep separate mining wallets.'
     })
 
   const saveClient = (): Promise<void> =>
@@ -263,6 +275,22 @@
           </div>
         </div>
         <div class="row"><button class="btn small" onclick={saveHeap} disabled={busy}>Save memory</button></div>
+      </section>
+
+      <section>
+        <h3>Wallet</h3>
+        <label class="check">
+          <input type="checkbox" bind:checked={shareWallet} />
+          Use the same mining wallet on mainnet and testnet
+        </label>
+        <span class="hint">
+          One seed, shown as a mainnet address (9…) or a testnet address (3…). When this network has no wallet yet, the
+          launcher can copy the other network's keystore. Leave off if you want a separate testnet key — testnet wallets
+          are often treated less carefully than mainnet ones.
+        </span>
+        <div class="row">
+          <button class="btn small" onclick={saveShareWallet} disabled={busy}>Save wallet settings</button>
+        </div>
       </section>
 
       <section>

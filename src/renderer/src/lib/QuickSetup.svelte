@@ -4,7 +4,7 @@
   import { fmtBytesGB, fmtMB } from './format'
   import Modal from './Modal.svelte'
   import ProgressBar from './ProgressBar.svelte'
-  import { install, saveClientSettings, setAutoStartClient, setNetwork, startNode, ui } from './store.svelte'
+  import { install, saveClientSettings, setAutoStartClient, setNetwork, setShareWalletAcrossNetworks, startNode, ui } from './store.svelte'
 
   type Step = 'welcome' | 'network' | 'check' | 'hashrate' | 'install' | 'node' | 'done'
   const STEPS: Step[] = ['network', 'check', 'hashrate', 'install', 'node', 'done']
@@ -19,6 +19,7 @@
   let checking = $state(false)
   let hashrateText = $state('')
   let error = $state<string | null>(null)
+  let shareWallet = $state(ui.shareWalletAcrossNetworks)
 
   const stepNo = $derived(STEPS.indexOf(step) + 1)
   const hashrate = $derived(parseHashrate(hashrateText))
@@ -29,7 +30,7 @@
     Boolean(ui.net?.java.installed && ui.net?.node.installed && ui.net?.client.installed)
   )
   const nodeRunning = $derived(ui.node.status === 'running' && ui.node.network === ui.network)
-  const walletReady = $derived(ui.wallet.phase === 'unlocked')
+  const walletReady = $derived(ui.wallet.phase === 'unlocked' && ui.wallet.network === ui.network)
 
   const memOk = $derived(check ? check.totalMemBytes >= RAM_GB * GB * 0.95 : true)
   const diskOk = $derived(check?.freeDiskBytes == null ? true : check.freeDiskBytes >= DISK_GB[ui.network] * GB)
@@ -46,11 +47,20 @@
   }
 
   async function chooseNetwork(network: Network): Promise<void> {
-    await setNetwork(network)
-    step = 'check'
-    checking = true
-    check = await window.lithos.getSystemCheck(network)
-    checking = false
+    error = null
+    try {
+      if (shareWallet !== ui.shareWalletAcrossNetworks) {
+        await setShareWalletAcrossNetworks(shareWallet)
+      }
+      await setNetwork(network)
+      step = 'check'
+      checking = true
+      check = await window.lithos.getSystemCheck(network)
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err)
+    } finally {
+      checking = false
+    }
   }
 
   async function saveHashrate(): Promise<void> {
@@ -111,6 +121,15 @@
           <span class="note">Test coins with no value. A good way to learn how Lithos works.</span>
         </button>
       </div>
+      <label class="check share">
+        <input type="checkbox" bind:checked={shareWallet} />
+        Use the same mining wallet on mainnet and testnet
+      </label>
+      <p class="note share-note">
+        One seed for both networks (mainnet addresses start with 9, testnet with 3). Leave unchecked to keep a separate
+        testnet key — safer if you treat test coins less carefully.
+      </p>
+      {#if error}<p class="error-text" role="alert">{error}</p>{/if}
     {:else if step === 'check'}
       <h2 id="qs-title">Checking this computer</h2>
       {#if checking || !check}
@@ -235,10 +254,15 @@
           <button class="btn primary" onclick={startNode} disabled={ui.node.status === 'starting'}>
             {ui.node.status === 'starting' ? 'Starting…' : 'Start node'}
           </button>
-        {:else if ui.wallet.phase === 'uninitialized'}
+        {:else if ui.wallet.phase === 'uninitialized' && ui.wallet.network === ui.network}
+          {@const sameKey = ui.shareWalletAcrossNetworks && (Boolean(ui.wallet.address) || ui.wallet.hasPeerWallet)}
           <button class="btn" onclick={() => (ui.wizard = 'keystore')}>Use keystore file</button>
-          <button class="btn" onclick={() => (ui.wizard = 'restore')}>Restore seed phrase</button>
-          <button class="btn primary" onclick={() => (ui.wizard = 'create')}>Create wallet</button>
+          <button class="btn" class:primary={sameKey} onclick={() => (ui.wizard = 'restore')}>
+            {sameKey ? 'Restore the same seed phrase' : 'Restore seed phrase'}
+          </button>
+          {#if !sameKey}
+            <button class="btn primary" onclick={() => (ui.wizard = 'create')}>Create wallet</button>
+          {/if}
         {:else if walletReady}
           <button class="btn primary" onclick={() => (step = 'done')}>Continue</button>
         {:else}
@@ -339,6 +363,14 @@
     font-size: 19px;
     font-weight: 700;
     letter-spacing: -0.03em;
+  }
+
+  .share {
+    margin-top: 4px;
+  }
+
+  .share-note {
+    margin: 0;
   }
 
   .checks {

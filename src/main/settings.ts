@@ -18,6 +18,11 @@ export interface LauncherSettings {
   dataDirs?: Partial<Record<Network, string>>
   /** Node and client versions picked under Versions; absent means the newest one installed. */
   versions?: Partial<Record<Network, Partial<Record<ProcId, string>>>>
+  /**
+   * One mining key across mainnet and testnet (same seed, 9… / 3… addresses).
+   * Off by default: testnet keys are often treated less carefully than mainnet ones.
+   */
+  shareWalletAcrossNetworks?: boolean
 }
 
 const file = (): string => join(app.getPath('userData'), 'launcher.json')
@@ -37,6 +42,11 @@ export function loadSettings(): LauncherSettings {
 
 export function settings(): LauncherSettings {
   return current
+}
+
+/** Whether one mining key is reused on both networks. Absent means separate keys. */
+export function shareWalletAcrossNetworks(): boolean {
+  return current.shareWalletAcrossNetworks === true
 }
 
 /** The node or client version picked for a network, if one was. */
