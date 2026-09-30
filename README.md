@@ -7,6 +7,8 @@ It is built for miners who have never run a node. Quick setup takes you from a f
 backed-up wallet and a running Lithos Client, and the dashboard then tells you in plain language what is happening and
 what to do next.
 
+![The Lithos Launcher dashboard on testnet: Setup, Ergo node, Wallet and Lithos Client cards beside the console](docs/screenshot.png)
+
 ## What it does
 
 - **Installs** a Java 11 runtime (Eclipse Temurin), the Ergo node and the Lithos Client. Every download is checked
