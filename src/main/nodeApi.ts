@@ -71,6 +71,28 @@ export class NodeApi {
     return hash
   }
 
+  /** The public key (hex) behind a P2PK address. The node only reads addresses of its own network. */
+  async addressToRaw(address: string): Promise<string> {
+    const res = await fetch(this.url(`/utils/addressToRaw/${encodeURIComponent(address)}`), {
+      signal: AbortSignal.timeout(5000)
+    })
+    if (!res.ok) throw await errorFrom(res)
+    const body = (await res.json()) as { raw?: unknown }
+    if (typeof body.raw !== 'string' || !/^[0-9a-f]{66}$/.test(body.raw)) throw new Error('The node returned a malformed key')
+    return body.raw
+  }
+
+  /** The P2PK address of a public key (hex) on this node's network: 9… on mainnet, 3… on testnet. */
+  async rawToAddress(pubKey: string): Promise<string> {
+    const res = await fetch(this.url(`/utils/rawToAddress/${encodeURIComponent(pubKey)}`), {
+      signal: AbortSignal.timeout(5000)
+    })
+    if (!res.ok) throw await errorFrom(res)
+    const body = (await res.json()) as { address?: unknown }
+    if (typeof body.address !== 'string' || !body.address) throw new Error('The node returned no address')
+    return body.address
+  }
+
   /** True if the node accepts `apiKey` on a protected endpoint. */
   async accepts(apiKey: string): Promise<boolean> {
     const res = await fetch(this.url('/wallet/status'), {

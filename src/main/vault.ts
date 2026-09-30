@@ -10,6 +10,13 @@ export interface NodeKey {
   hash: string
 }
 
+/** A network's mining wallet as its node reported it. Not secret: an address and its public key. */
+export interface WalletKey {
+  address: string
+  /** Hex public key behind `address`, from the node. The same key has a 9… and a 3… address. */
+  pubKey: string
+}
+
 interface VaultData {
   v: 1
   nodeKeys: Partial<Record<Network, NodeKey>>
@@ -18,11 +25,8 @@ interface VaultData {
   lithosKeys: Partial<Record<Network, NodeKey>>
   /** Play's application secret for the Lithos Client. */
   playSecrets: Partial<Record<Network, string>>
-  /**
-   * Last P2PK mining address reported by a node (any network encoding).
-   * Same key on mainnet (9…) and testnet (3…); not a seed.
-   */
-  miningAddress?: string | null
+  /** Each network's own mining wallet, last seen on its node. */
+  walletKeys: Partial<Record<Network, WalletKey>>
 }
 
 const empty = (): VaultData => ({
@@ -31,7 +35,7 @@ const empty = (): VaultData => ({
   walletPasswords: {},
   lithosKeys: {},
   playSecrets: {},
-  miningAddress: null
+  walletKeys: {}
 })
 
 /**
@@ -116,14 +120,13 @@ export class Vault {
     await this.persist()
   }
 
-  /** P2PK mining address last seen on any network, or null before a node has reported one. */
-  getMiningAddress(): string | null {
-    return this.data.miningAddress ?? null
+  /** The mining wallet `network`'s node last reported, or null before it has reported one. */
+  getWalletKey(network: Network): WalletKey | null {
+    return this.data.walletKeys[network] ?? null
   }
 
-  async setMiningAddress(address: string): Promise<void> {
-    if (this.data.miningAddress === address) return
-    this.data.miningAddress = address
+  async setWalletKey(network: Network, key: WalletKey): Promise<void> {
+    this.data.walletKeys[network] = key
     await this.persist()
   }
 

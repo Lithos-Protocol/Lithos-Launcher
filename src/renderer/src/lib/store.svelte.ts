@@ -1,4 +1,3 @@
-import { addressForNetwork } from '@shared/address'
 import { WINDOW_BLOCKS, parseConfigDiff, recommendedBalanceNanoErg } from '@shared/mining'
 import { syncView } from '@shared/sync'
 import type {
@@ -56,6 +55,7 @@ export const ui = $state({
     phase: 'unavailable',
     address: null,
     hasPeerWallet: false,
+    keyMatch: null,
     passwordKnown: false,
     balanceNanoErg: null,
     walletHeight: null,
@@ -206,20 +206,18 @@ export async function setNetwork(network: Network): Promise<void> {
   ui.releases = { node: null, client: null }
   ui.setupError = null
   ui.progress = {}
-  // Shared key: flip the address encoding immediately. Separate keys: clear until that node reports.
+  // Blank until the main process reports this network's wallet: the other network's address
+  // may belong to a different key, so it is never carried over.
   ui.wallet = {
-    ...ui.wallet,
     network,
     phase: 'unavailable',
-    address:
-      ui.shareWalletAcrossNetworks && ui.wallet.address
-        ? addressForNetwork(ui.wallet.address, network)
-        : null,
+    address: null,
+    hasPeerWallet: false,
+    keyMatch: null,
+    passwordKnown: false,
     balanceNanoErg: null,
     walletHeight: null,
-    error: null,
-    passwordKnown: false,
-    hasPeerWallet: ui.shareWalletAcrossNetworks ? ui.wallet.hasPeerWallet : false
+    error: null
   }
   try {
     localStorage.setItem(NETWORK_KEY, network)

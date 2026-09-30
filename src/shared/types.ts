@@ -87,19 +87,25 @@ export interface NodeInfo {
 export type WalletPhase = 'unavailable' | 'uninitialized' | 'locked' | 'unlocking' | 'unlocked'
 
 export interface WalletState {
-  /** Network of the running node, or null when no node is running. */
+  /** The network the wallet panel shows (its node may not be running), or null before one is picked. */
   network: Network | null
   phase: WalletPhase
   /**
-   * P2PK address of the same key on `network`: mainnet starts with 9, testnet with 3.
-   * Null until a node has reported the key. Not a seed.
+   * The mining address on `network` (mainnet starts with 9, testnet with 3): its node's own, or
+   * the one remembered for it while its keystore is still there. With sharing on and no wallet on
+   * `network` yet, the other network's key, encoded by this network's node. Not a seed.
    */
   address: string | null
   /**
-   * Another network already has a node keystore for this mining key.
-   * Creating a new wallet here would make a different key; restore or reuse instead.
+   * Sharing is on and the other network has a node keystore. Creating a new wallet here would make
+   * a different key; restore or reuse instead.
    */
   hasPeerWallet: boolean
+  /**
+   * With sharing on and both networks' wallets known: whether they use one key. 'different' means
+   * sharing can't apply, and each network keeps its own wallet. Null otherwise.
+   */
+  keyMatch: 'same' | 'different' | null
   /** The launcher holds this wallet's password (saved, or for this session only). */
   passwordKnown: boolean
   /** Confirmed balance in nanoERG while unlocked, else null. */

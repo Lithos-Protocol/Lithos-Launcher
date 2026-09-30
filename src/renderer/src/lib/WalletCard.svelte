@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { addressForNetwork } from '@shared/address'
   import { fmtConfigDiff, recommendedBalanceNanoErg } from '@shared/mining'
   import QRCode from 'qrcode'
   import { fmtErg, fmtInt, fmtPct, shortAddress } from './format'
@@ -20,15 +19,9 @@
   // Ignore a wallet snapshot that still belongs to the other network.
   const onNetwork = $derived(w.network === ui.network)
   const phase = $derived(onNetwork || w.network === null ? w.phase : 'unavailable')
-  const address = $derived(
-    !w.address
-      ? null
-      : ui.shareWalletAcrossNetworks
-        ? addressForNetwork(w.address, ui.network)
-        : onNetwork
-          ? w.address
-          : null
-  )
+  // The main process works out which address belongs to this network (see WalletState.address).
+  const address = $derived(onNetwork ? w.address : null)
+  const other = $derived(ui.network === 'mainnet' ? 'testnet' : 'mainnet')
   const balanceNanoErg = $derived(onNetwork ? w.balanceNanoErg : null)
   const sameKey = $derived(ui.shareWalletAcrossNetworks && (Boolean(address) || w.hasPeerWallet))
   // A restored or imported wallet scans the whole chain for its history; show how far it has got.
@@ -101,8 +94,8 @@
       {@render balanceRow()}
       {@render addressRow()}
       <p class="note">
-        {#if ui.shareWalletAcrossNetworks}
-          This is the same key on {ui.network}. Mainnet addresses start with 9 and testnet addresses start with 3.
+        {#if w.keyMatch === 'same'}
+          The same key as your {other} wallet. Mainnet addresses start with 9 and testnet addresses start with 3.
         {:else}
           Mining wallet for {ui.network}.
         {/if}
@@ -192,6 +185,12 @@
         {:else}
           You'll be asked for the password next time the node starts.
         {/if}
+      </p>
+    {/if}
+    {#if onNetwork && w.keyMatch === 'different'}
+      <p class="warn-note">
+        Sharing is on, but your mainnet and testnet wallets already use different keys, so each network keeps its own.
+        Make sure you fund the {ui.network} address shown here.
       </p>
     {/if}
   </div>
