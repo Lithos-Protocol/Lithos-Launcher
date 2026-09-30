@@ -145,6 +145,13 @@ The Release workflow builds both platforms, writes `SHA256SUMS`, and opens a dra
 standing notes from [`.github/release-notes.md`](.github/release-notes.md). Fill in "What's new" and publish it. A tag
 that doesn't match `package.json` fails the build, and a tag with a suffix (`v0.3.0-beta.1`) becomes a pre-release.
 
+A tag push runs the workflow as it was at the tagged commit. To retry a tag after fixing the workflow, run it by hand
+from `main` instead of moving the tag:
+
+```bash
+gh workflow run release.yml -f tag=v0.2.0
+```
+
 ## License
 
 [CC0 1.0 Universal](LICENSE)

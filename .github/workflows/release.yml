@@ -5,6 +5,14 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Release an existing tag with this workflow as it is on the branch you run it from. A tag push
+  # always runs the workflow as it was at the tagged commit, so this is how a fixed workflow retries.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to release, e.g. v0.2.0
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -12,15 +20,20 @@ permissions:
 jobs:
   build:
     uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
 
   release:
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: refs/tags/${{ env.TAG }}
           fetch-depth: 0 # all tags, to link the changes since the previous one
       - uses: actions/download-artifact@v8
         with:
@@ -30,14 +43,18 @@ jobs:
       - name: Write SHA256SUMS
         working-directory: dist
         run: |
+          # Artifacts keep the path after the upload's first wildcard (release/<version>/), so lift
+          # the installers out of that folder first.
+          find . -mindepth 2 -type f -exec mv -t . {} +
+          find . -mindepth 1 -type d -empty -delete
           sha256sum *.exe *.deb *.AppImage > SHA256SUMS
           cat SHA256SUMS
       - name: Draft the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
         run: |
           version="${TAG#v}"
+          files=(dist/*.exe dist/*.deb dist/*.AppImage dist/SHA256SUMS)
           sed "s/{{VERSION}}/$version/g" .github/release-notes.md > notes.md
           previous=$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || true)
           if [ -n "$previous" ]; then
@@ -46,9 +63,9 @@ jobs:
           fi
           if gh release view "$TAG" > /dev/null 2>&1; then
             # A re-run replaces the files and leaves notes already edited on the draft alone.
-            gh release upload "$TAG" dist/* --clobber
+            gh release upload "$TAG" "${files[@]}" --clobber
           else
             flags=(--draft --verify-tag --title "Lithos Launcher $version" --notes-file notes.md)
             if [[ "$version" == *-* ]]; then flags+=(--prerelease); fi
-            gh release create "$TAG" "${flags[@]}" dist/*
+            gh release create "$TAG" "${flags[@]}" "${files[@]}"
           fi
