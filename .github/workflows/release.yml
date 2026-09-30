@@ -1,0 +1,54 @@
+name: Release
+
+# Pushing a version tag (npm version, see the README) builds both platforms and drafts a GitHub
+# release with the installers, SHA256SUMS and the standing notes. Add "What's new", then publish.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # all tags, to link the changes since the previous one
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: lithos-launcher-*
+          path: dist
+          merge-multiple: true
+      - name: Write SHA256SUMS
+        working-directory: dist
+        run: |
+          sha256sum *.exe *.deb *.AppImage > SHA256SUMS
+          cat SHA256SUMS
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          sed "s/{{VERSION}}/$version/g" .github/release-notes.md > notes.md
+          previous=$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || true)
+          if [ -n "$previous" ]; then
+            printf '\n**Full changelog:** %s/%s/compare/%s...%s\n' \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$previous" "$TAG" >> notes.md
+          fi
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # A re-run replaces the files and leaves notes already edited on the draft alone.
+            gh release upload "$TAG" dist/* --clobber
+          else
+            flags=(--draft --verify-tag --title "Lithos Launcher $version" --notes-file notes.md)
+            if [[ "$version" == *-* ]]; then flags+=(--prerelease); fi
+            gh release create "$TAG" "${flags[@]}" dist/*
+          fi

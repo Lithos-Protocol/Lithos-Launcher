@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # release.yml builds a tag the same way before drafting the release.
+  workflow_call:
 
 permissions:
   contents: read
@@ -26,6 +28,16 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # The app reports this version and names its files with it, so a release tag must match.
+      - name: Check the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match package.json version $version. Tag with npm version instead."
+            exit 1
+          fi
       - run: npm ci
       # Typecheck + bundle, then package. Unsigned until a code-signing certificate is set up.
       - run: npm run ${{ matrix.dist }}

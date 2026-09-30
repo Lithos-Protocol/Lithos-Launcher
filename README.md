@@ -125,6 +125,24 @@ The code is Electron + TypeScript + Svelte 5, bundled with electron-vite:
 - `src/renderer`: the interface
 - `src/shared`: types and logic used by both (sync stages, mining maths)
 
+### Releasing
+
+From a clean `main`, set the version. This commits it and tags `v<version>`:
+
+```bash
+npm version 0.2.0 -m "Release %s"
+```
+
+Then push the commit and the tag:
+
+```bash
+git push origin main v0.2.0
+```
+
+The Release workflow builds both platforms, writes `SHA256SUMS`, and opens a draft release with the installers and the
+standing notes from [`.github/release-notes.md`](.github/release-notes.md). Fill in "What's new" and publish it. A tag
+that doesn't match `package.json` fails the build, and a tag with a suffix (`v0.3.0-beta.1`) becomes a pre-release.
+
 ## License
 
 [CC0 1.0 Universal](LICENSE)
