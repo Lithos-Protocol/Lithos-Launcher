@@ -1,6 +1,8 @@
 <script lang="ts">
   import { bondErg, parseConfigDiff } from '@shared/mining'
+  import QRCode from 'qrcode'
   import { fmtErg, fmtInt, fmtPct, shortAddress } from './format'
+  import Modal from './Modal.svelte'
   import ProgressBar from './ProgressBar.svelte'
   import { copyText, ui, unlockWallet, walletScan } from './store.svelte'
 
@@ -8,6 +10,9 @@
   let remember = $state(true)
   let error = $state<string | null>(null)
   let copied = $state(false)
+  let showQr = $state(false)
+  let qrDataUrl = $state<string | null>(null)
+  let qrError = $state<string | null>(null)
 
   const w = $derived(ui.wallet)
   const secure = $derived(ui.vault?.secure ?? false)
@@ -33,6 +38,29 @@
     await copyText(w.address)
     copied = true
     setTimeout(() => (copied = false), 1500)
+  }
+
+  async function openQr(): Promise<void> {
+    if (!w.address) return
+    qrError = null
+    qrDataUrl = null
+    showQr = true
+    try {
+      qrDataUrl = await QRCode.toDataURL(w.address, {
+        errorCorrectionLevel: 'M',
+        margin: 2,
+        width: 280,
+        color: { dark: '#0b1020', light: '#ffffff' }
+      })
+    } catch (err) {
+      qrError = err instanceof Error ? err.message : String(err)
+    }
+  }
+
+  function closeQr(): void {
+    showQr = false
+    qrDataUrl = null
+    qrError = null
   }
 </script>
 
@@ -100,7 +128,10 @@
       <div class="address well">
         <span class="micro">Address</span>
         <code class="mono" title={w.address ?? ''}>{w.address ? shortAddress(w.address) : '—'}</code>
-        <button class="btn small" onclick={copy} disabled={!w.address}>{copied ? 'Copied' : 'Copy'}</button>
+        <div class="addr-actions">
+          <button class="btn small" onclick={openQr} disabled={!w.address} aria-expanded={showQr}>QR</button>
+          <button class="btn small" onclick={copy} disabled={!w.address}>{copied ? 'Copied' : 'Copy'}</button>
+        </div>
       </div>
       {#if scan}
         <div class="scan">
@@ -134,6 +165,33 @@
     {/if}
   </div>
 </section>
+
+{#if showQr && w.address}
+  <Modal labelledby="wallet-qr-title" onclose={closeQr} width={420}>
+    <div class="content">
+      <div class="top">
+        <span class="micro">Wallet · Receive</span>
+        <button class="x" aria-label="Close" onclick={closeQr}>✕</button>
+      </div>
+      <h2 id="wallet-qr-title">Scan to send ERG</h2>
+      <p class="note">Point a wallet camera at this code to fund the mining address.</p>
+      <div class="qr-frame">
+        {#if qrError}
+          <p class="error-text" role="alert">{qrError}</p>
+        {:else if qrDataUrl}
+          <img class="qr" src={qrDataUrl} alt="QR code for mining wallet address" width="280" height="280" />
+        {:else}
+          <p class="note">Generating QR…</p>
+        {/if}
+      </div>
+      <code class="mono full-addr">{w.address}</code>
+      <div class="footer">
+        <button class="btn small" onclick={copy}>{copied ? 'Copied' : 'Copy address'}</button>
+        <button class="btn primary" onclick={closeQr}>Done</button>
+      </div>
+    </div>
+  </Modal>
+{/if}
 
 <style>
   .body {
@@ -228,6 +286,12 @@
     padding: 8px 8px 8px 12px;
   }
 
+  .addr-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   code {
     overflow: hidden;
     color: var(--text-head);
@@ -257,5 +321,34 @@
 
   .sub .num {
     color: var(--muted);
+  }
+
+  .qr-frame {
+    display: grid;
+    place-items: center;
+    min-height: 280px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #fff;
+  }
+
+  .qr {
+    display: block;
+    width: 280px;
+    height: 280px;
+  }
+
+  .full-addr {
+    display: block;
+    padding: 10px 12px;
+    overflow-wrap: anywhere;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--well);
+    color: var(--text-head);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: normal;
   }
 </style>
