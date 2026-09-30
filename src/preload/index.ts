@@ -35,6 +35,7 @@ const api: LauncherApi = {
   openLink: (name) => ipcRenderer.invoke(IPC.openLink, name),
   getLauncherInfo: () => ipcRenderer.invoke(IPC.getLauncherInfo),
   setHeap: (heap) => ipcRenderer.invoke(IPC.setHeap, heap),
+  setShareWalletAcrossNetworks: (on) => ipcRenderer.invoke(IPC.setShareWalletAcrossNetworks, on),
   chooseInstallRoot: () => ipcRenderer.invoke(IPC.chooseInstallRoot),
   resetInstallRoot: () => ipcRenderer.invoke(IPC.resetInstallRoot),
   pickFolder: (title) => ipcRenderer.invoke(IPC.pickFolder, title),

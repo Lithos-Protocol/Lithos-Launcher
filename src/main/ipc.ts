@@ -28,7 +28,7 @@ import { autoHeap, defaultRoot, heapPlan, layout, NODE_API_PORT } from './layout
 import { customOverrides } from './managedBlock'
 import type { NodeController } from './nodeController'
 import { copySecret } from './secretClipboard'
-import { settings, updateSettings } from './settings'
+import { settings, shareWalletAcrossNetworks, updateSettings } from './settings'
 import { lanAddresses, systemCheck } from './system'
 import type { Vault } from './vault'
 import type { WalletManager } from './wallet'
@@ -131,7 +131,8 @@ function launcherInfo(root: string): LauncherInfo {
     heap: heapPlan(),
     autoHeap: autoHeap(),
     heapOverridden: { node: heap?.nodeMb !== undefined, client: heap?.clientMb !== undefined },
-    dataDirs: { ...settings().dataDirs }
+    dataDirs: { ...settings().dataDirs },
+    shareWalletAcrossNetworks: shareWalletAcrossNetworks()
   }
 }
 
@@ -164,7 +165,8 @@ export function registerIpc(ctx: IpcContext): void {
       vault: ctx.vault.info,
       skipSyncGate: ctx.skipSyncGate,
       lanAddresses: lanAddresses(),
-      platform: process.platform
+      platform: process.platform,
+      shareWalletAcrossNetworks: shareWalletAcrossNetworks()
     })
   )
   handle(IPC.install, (n) => ctx.installer.install(asNetwork(n)))
@@ -247,6 +249,14 @@ export function registerIpc(ctx: IpcContext): void {
       }
       if (!s.heap.nodeMb && !s.heap.clientMb) delete s.heap
     })
+    return launcherInfo(ctx.root)
+  })
+  handle(IPC.setShareWalletAcrossNetworks, async (on) => {
+    await updateSettings((s) => {
+      if (asBoolean(on)) s.shareWalletAcrossNetworks = true
+      else delete s.shareWalletAcrossNetworks
+    })
+    await ctx.wallet.applySharePreference()
     return launcherInfo(ctx.root)
   })
   handle(IPC.chooseInstallRoot, async () => {

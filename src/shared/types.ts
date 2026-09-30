@@ -206,6 +206,11 @@ export interface LauncherInfo {
   heapOverridden: { node: boolean; client: boolean }
   /** Adopted node data folders, by network. */
   dataDirs: Partial<Record<Network, string>>
+  /**
+   * One mining key on mainnet and testnet (same seed; addresses rewrite 9… ↔ 3…).
+   * Off by default so testnet can keep a separate, less-trusted wallet.
+   */
+  shareWalletAcrossNetworks: boolean
 }
 
 /** The node's REST API key, or the Lithos Client's own API key. */
@@ -275,6 +280,8 @@ export interface AppInfo {
   /** This machine's LAN IPv4 addresses, for pointing mining rigs at the stratum port. */
   lanAddresses: string[]
   platform: 'win32' | 'linux' | 'darwin' | string
+  /** One mining key across networks when true; see LauncherInfo.shareWalletAcrossNetworks. */
+  shareWalletAcrossNetworks: boolean
 }
 
 export interface LauncherApi {
@@ -314,6 +321,11 @@ export interface LauncherApi {
   getLauncherInfo(): Promise<LauncherInfo>
   /** null resets a size to automatic. Takes effect on the next start. */
   setHeap(heap: { nodeMb: number | null; clientMb: number | null }): Promise<LauncherInfo>
+  /**
+   * One mining key on both networks when true; separate keys when false.
+   * Turning it on may copy the other network's keystore onto an empty node.
+   */
+  setShareWalletAcrossNetworks(on: boolean): Promise<LauncherInfo>
   /** Opens a folder picker; the app restarts in the new folder. Resolves false if cancelled. */
   chooseInstallRoot(): Promise<boolean>
   resetInstallRoot(): Promise<void>
@@ -387,6 +399,7 @@ export const IPC = {
   openLink: 'launcher:open-link',
   getLauncherInfo: 'launcher:get-info',
   setHeap: 'launcher:set-heap',
+  setShareWalletAcrossNetworks: 'launcher:set-share-wallet',
   chooseInstallRoot: 'launcher:choose-root',
   resetInstallRoot: 'launcher:reset-root',
   pickFolder: 'launcher:pick-folder',

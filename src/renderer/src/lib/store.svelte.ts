@@ -73,6 +73,8 @@ export const ui = $state({
   /** Development only: the client may start before the node is synced. */
   skipSyncGate: false,
   lanAddresses: [] as string[],
+  /** One mining key on mainnet and testnet when true (off by default). */
+  shareWalletAcrossNetworks: false,
   installing: false,
   /** Node and client releases on GitHub for the selected network; null until checked (or offline). */
   releases: { node: null, client: null } as Record<ProcId, ReleaseList | null>,
@@ -124,6 +126,7 @@ export async function init(): Promise<void> {
   ui.vault = app.vault
   ui.skipSyncGate = app.skipSyncGate
   ui.lanAddresses = app.lanAddresses
+  ui.shareWalletAcrossNetworks = app.shareWalletAcrossNetworks
   ui.node = node
   ui.client = client
   ui.wallet = wallet
@@ -180,16 +183,20 @@ export async function setNetwork(network: Network): Promise<void> {
   ui.releases = { node: null, client: null }
   ui.setupError = null
   ui.progress = {}
-  // Same key, other network: flip the address immediately and drop the other balance.
+  // Shared key: flip the address encoding immediately. Separate keys: clear until that node reports.
   ui.wallet = {
     ...ui.wallet,
     network,
     phase: 'unavailable',
-    address: ui.wallet.address ? addressForNetwork(ui.wallet.address, network) : null,
+    address:
+      ui.shareWalletAcrossNetworks && ui.wallet.address
+        ? addressForNetwork(ui.wallet.address, network)
+        : null,
     balanceNanoErg: null,
     walletHeight: null,
     error: null,
-    passwordKnown: false
+    passwordKnown: false,
+    hasPeerWallet: ui.shareWalletAcrossNetworks ? ui.wallet.hasPeerWallet : false
   }
   try {
     localStorage.setItem(NETWORK_KEY, network)
@@ -198,6 +205,13 @@ export async function setNetwork(network: Network): Promise<void> {
   }
   ui.wallet = await api.focusWallet(network)
   await refresh()
+}
+
+/** Saves the shared-wallet preference and refreshes wallet state to match. */
+export async function setShareWalletAcrossNetworks(on: boolean): Promise<void> {
+  const info = await api.setShareWalletAcrossNetworks(on)
+  ui.shareWalletAcrossNetworks = info.shareWalletAcrossNetworks
+  ui.wallet = await api.focusWallet(ui.network)
 }
 
 export async function install(): Promise<void> {

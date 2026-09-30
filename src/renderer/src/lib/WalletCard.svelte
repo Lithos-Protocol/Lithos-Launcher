@@ -17,9 +17,18 @@
   // Ignore a wallet snapshot that still belongs to the other network.
   const onNetwork = $derived(w.network === ui.network)
   const phase = $derived(onNetwork || w.network === null ? w.phase : 'unavailable')
-  const address = $derived(w.address ? addressForNetwork(w.address, ui.network) : null)
+  const address = $derived(
+    !w.address
+      ? null
+      : ui.shareWalletAcrossNetworks
+        ? addressForNetwork(w.address, ui.network)
+        : onNetwork
+          ? w.address
+          : null
+  )
   const balanceNanoErg = $derived(onNetwork ? w.balanceNanoErg : null)
   const walletHeight = $derived(onNetwork ? w.walletHeight : null)
+  const sameKey = $derived(ui.shareWalletAcrossNetworks && (Boolean(address) || w.hasPeerWallet))
   // A restored or imported wallet scans the whole chain for its history; show how far it has got.
   const chainHeight = $derived(
     ui.node.status === 'running' && ui.node.network === ui.network ? (ui.info?.fullHeight ?? null) : null
@@ -67,7 +76,11 @@
       {@render balanceRow()}
       {@render addressRow()}
       <p class="note">
-        This is the same key on {ui.network}. Mainnet addresses start with 9 and testnet addresses start with 3.
+        {#if ui.shareWalletAcrossNetworks}
+          This is the same key on {ui.network}. Mainnet addresses start with 9 and testnet addresses start with 3.
+        {:else}
+          Mining wallet for {ui.network}.
+        {/if}
         {#if ui.node.status === 'running' && ui.node.network === ui.network}
           Reading the balance…
         {:else}
@@ -75,7 +88,6 @@
         {/if}
       </p>
     {:else if phase === 'uninitialized'}
-      {@const sameKey = Boolean(address) || w.hasPeerWallet}
       <p class="note">
         {#if sameKey}
           This node has no wallet yet. Restore the same seed phrase you already use, or the keystore from your other
