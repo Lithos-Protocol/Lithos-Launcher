@@ -10,6 +10,7 @@ import {
   type WalletPhase,
   type WalletState
 } from '@shared/types'
+import { addressForNetwork } from './address'
 import { readNodeSettings } from './ergoConf'
 import { keystoreFileName, readKeystore } from './keystore'
 import { layout } from './layout'
@@ -26,6 +27,7 @@ const UNAVAILABLE: WalletState = {
   network: null,
   phase: 'unavailable',
   address: null,
+  addressFromPeer: false,
   hasPeerWallet: false,
   keyMatch: null,
   passwordKnown: false,
@@ -85,8 +87,6 @@ export class WalletManager extends EventEmitter {
    * node. The running node's wallet is kept unlocked whichever network this is.
    */
   private focused: Network | null = null
-  /** The other network's key as this network's node encoded it, by `${network}:${pubKey}`. */
-  private readonly converted = new Map<string, string>()
 
   constructor(
     private readonly root: string,
@@ -378,22 +378,21 @@ export class WalletManager extends EventEmitter {
   }
 
   /**
-   * With sharing on, the other network's key as an address on `conn`'s network, for a node with
-   * no wallet yet. The node does the encoding; it only knows its own network's addresses.
+   * With sharing on and no wallet on `network` yet, the other network's key as a `network` address:
+   * the address that wallet gets here once the same seed or keystore is used.
    */
-  private async peerAddress(conn: NodeConnection, keystores: Keystores): Promise<string | null> {
-    const peer = this.vault.getWalletKey(otherNetwork(conn.network))
-    if (!shareWalletAcrossNetworks() || !keystores.peer || !peer) return null
-    const key = `${conn.network}:${peer.pubKey}`
-    const cached = this.converted.get(key)
-    if (cached) return cached
-    try {
-      const address = await conn.api.rawToAddress(peer.pubKey)
-      this.converted.set(key, address)
-      return address
-    } catch {
-      return null
-    }
+  private peerAddress(network: Network, keystores: Keystores): string | null {
+    const peer = this.vault.getWalletKey(otherNetwork(network))
+    if (!shareWalletAcrossNetworks() || keystores.own || !keystores.peer || !peer) return null
+    return addressForNetwork(peer.address, network)
+  }
+
+  /** What to show while `network`'s node can't be read: its own remembered address, else the shared key's. */
+  private offlineAddress(network: Network, keystores: Keystores): Pick<WalletState, 'address' | 'addressFromPeer'> {
+    const own = this.remembered(network, keystores)
+    if (own) return { address: own, addressFromPeer: false }
+    const peer = this.peerAddress(network, keystores)
+    return { address: peer, addressFromPeer: peer !== null }
   }
 
   private async refresh(): Promise<void> {
@@ -408,7 +407,7 @@ export class WalletManager extends EventEmitter {
     if (!conn) {
       this.publish(network, keystores, {
         phase: 'unavailable',
-        address: this.remembered(network, keystores),
+        ...this.offlineAddress(network, keystores),
         balanceNanoErg: null,
         walletHeight: null,
         error: null
@@ -420,10 +419,12 @@ export class WalletManager extends EventEmitter {
       if (stale()) return
       const phase = phaseOf(s)
       if (s.changeAddress) await this.rememberKey(conn, s.changeAddress)
-      const address =
-        s.changeAddress ||
-        this.remembered(network, keystores) ||
-        (phase === 'uninitialized' ? await this.peerAddress(conn, keystores) : null)
+      // A node with a wallet shows only its own key; the shared key is offered to one without.
+      const shown = s.changeAddress
+        ? { address: s.changeAddress, addressFromPeer: false }
+        : phase === 'uninitialized'
+          ? this.offlineAddress(network, keystores)
+          : { address: this.remembered(network, keystores), addressFromPeer: false }
       let balanceNanoErg: number | null = null
       if (s.isUnlocked) {
         try {
@@ -436,7 +437,7 @@ export class WalletManager extends EventEmitter {
       if (stale()) return
       this.publish(network, keystores, {
         phase,
-        address,
+        ...shown,
         balanceNanoErg,
         walletHeight: typeof s.walletHeight === 'number' ? s.walletHeight : null,
         error: phase === 'locked' && this.current.network === network ? this.current.error : null
@@ -448,7 +449,7 @@ export class WalletManager extends EventEmitter {
       if (!stale() && this.current.network !== network) {
         this.publish(network, keystores, {
           phase: 'unavailable',
-          address: this.remembered(network, keystores),
+          ...this.offlineAddress(network, keystores),
           balanceNanoErg: null,
           walletHeight: null,
           error: null
@@ -460,7 +461,7 @@ export class WalletManager extends EventEmitter {
   private publish(
     network: Network,
     keystores: Keystores,
-    patch: Pick<WalletState, 'phase' | 'address' | 'balanceNanoErg' | 'walletHeight' | 'error'>
+    patch: Pick<WalletState, 'phase' | 'address' | 'addressFromPeer' | 'balanceNanoErg' | 'walletHeight' | 'error'>
   ): void {
     const sharing = shareWalletAcrossNetworks()
     const mine = keystores.own ? this.vault.getWalletKey(network) : null
@@ -469,6 +470,7 @@ export class WalletManager extends EventEmitter {
       network,
       phase: patch.phase,
       address: patch.address,
+      addressFromPeer: patch.addressFromPeer,
       hasPeerWallet: sharing && keystores.peer,
       keyMatch: sharing && mine && peer ? (mine.pubKey === peer.pubKey ? 'same' : 'different') : null,
       passwordKnown: this.vault.getWalletPassword(network) !== null,

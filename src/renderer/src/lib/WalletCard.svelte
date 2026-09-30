@@ -94,15 +94,20 @@
       {@render balanceRow()}
       {@render addressRow()}
       <p class="note">
-        {#if w.keyMatch === 'same'}
-          The same key as your {other} wallet. Mainnet addresses start with 9 and testnet addresses start with 3.
+        {#if w.addressFromPeer}
+          Your {other} wallet's key as a {ui.network} address. Mainnet addresses start with 9 and testnet addresses
+          start with 3. Start the {ui.network} node to use it here.
         {:else}
-          Mining wallet for {ui.network}.
-        {/if}
-        {#if ui.node.status === 'running' && ui.node.network === ui.network}
-          Reading the balance…
-        {:else}
-          Start the {ui.network} node to read the balance.
+          {#if w.keyMatch === 'same'}
+            The same key as your {other} wallet. Mainnet addresses start with 9 and testnet addresses start with 3.
+          {:else}
+            Mining wallet for {ui.network}.
+          {/if}
+          {#if ui.node.status === 'running' && ui.node.network === ui.network}
+            Reading the balance…
+          {:else}
+            Start the {ui.network} node to read the balance.
+          {/if}
         {/if}
       </p>
     {:else if phase === 'uninitialized'}

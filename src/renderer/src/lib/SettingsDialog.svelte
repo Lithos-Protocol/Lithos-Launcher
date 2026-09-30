@@ -285,8 +285,7 @@
         </label>
         <span class="hint">
           One seed, shown as a mainnet address (9…) or a testnet address (3…). When this network has no wallet yet, the
-          launcher can copy the other network's keystore. Leave off if you want a separate testnet key — testnet wallets
-          are often treated less carefully than mainnet ones.
+          launcher can copy the other network's keystore. Leave off if you want a separate testnet key.
         </span>
         <div class="row">
           <button class="btn small" onclick={saveShareWallet} disabled={busy}>Save wallet settings</button>

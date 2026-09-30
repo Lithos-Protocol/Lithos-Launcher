@@ -82,17 +82,6 @@ export class NodeApi {
     return body.raw
   }
 
-  /** The P2PK address of a public key (hex) on this node's network: 9… on mainnet, 3… on testnet. */
-  async rawToAddress(pubKey: string): Promise<string> {
-    const res = await fetch(this.url(`/utils/rawToAddress/${encodeURIComponent(pubKey)}`), {
-      signal: AbortSignal.timeout(5000)
-    })
-    if (!res.ok) throw await errorFrom(res)
-    const body = (await res.json()) as { address?: unknown }
-    if (typeof body.address !== 'string' || !body.address) throw new Error('The node returned no address')
-    return body.address
-  }
-
   /** True if the node accepts `apiKey` on a protected endpoint. */
   async accepts(apiKey: string): Promise<boolean> {
     const res = await fetch(this.url('/wallet/status'), {

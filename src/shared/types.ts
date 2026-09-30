@@ -93,9 +93,11 @@ export interface WalletState {
   /**
    * The mining address on `network` (mainnet starts with 9, testnet with 3): its node's own, or
    * the one remembered for it while its keystore is still there. With sharing on and no wallet on
-   * `network` yet, the other network's key, encoded by this network's node. Not a seed.
+   * `network` yet, the other network's key as a `network` address (see addressFromPeer). Not a seed.
    */
   address: string | null
+  /** `address` is the other network's key: `network` has no wallet of its own yet. */
+  addressFromPeer: boolean
   /**
    * Sharing is on and the other network has a node keystore. Creating a new wallet here would make
    * a different key; restore or reuse instead.

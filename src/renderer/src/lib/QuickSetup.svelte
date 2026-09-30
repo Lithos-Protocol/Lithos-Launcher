@@ -127,7 +127,7 @@
       </label>
       <p class="note share-note">
         One seed for both networks (mainnet addresses start with 9, testnet with 3). Leave unchecked to keep a separate
-        testnet key — safer if you treat test coins less carefully.
+        testnet key.
       </p>
       {#if error}<p class="error-text" role="alert">{error}</p>{/if}
     {:else if step === 'check'}
