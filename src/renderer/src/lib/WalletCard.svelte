@@ -9,7 +9,7 @@
   let password = $state('')
   let remember = $state(true)
   let error = $state<string | null>(null)
-  let copied = $state(false)
+  let copied = $state<'card' | 'dialog' | null>(null)
   let showQr = $state(false)
   let qrDataUrl = $state<string | null>(null)
   let qrError = $state<string | null>(null)
@@ -35,11 +35,12 @@
     node.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }
 
-  async function copy(): Promise<void> {
+  /** `from` is the button that was clicked, so only that one says "Copied". */
+  async function copy(from: 'card' | 'dialog'): Promise<void> {
     if (!w.address) return
     await copyText(w.address)
-    copied = true
-    setTimeout(() => (copied = false), 1500)
+    copied = from
+    setTimeout(() => (copied = null), 1500)
   }
 
   async function openQr(): Promise<void> {
@@ -131,8 +132,10 @@
         <span class="micro">Address</span>
         <code class="mono" title={w.address ?? ''}>{w.address ? shortAddress(w.address) : '—'}</code>
         <div class="addr-actions">
-          <button class="btn small" onclick={openQr} disabled={!w.address} aria-expanded={showQr}>QR</button>
-          <button class="btn small" onclick={copy} disabled={!w.address}>{copied ? 'Copied' : 'Copy'}</button>
+          <button class="btn small" onclick={openQr} disabled={!w.address} aria-haspopup="dialog">QR</button>
+          <button class="btn small" onclick={() => copy('card')} disabled={!w.address}>
+            {copied === 'card' ? 'Copied' : 'Copy'}
+          </button>
         </div>
       </div>
       {#if scan}
@@ -189,7 +192,7 @@
       </div>
       <code class="mono full-addr">{w.address}</code>
       <div class="footer">
-        <button class="btn small" onclick={copy}>{copied ? 'Copied' : 'Copy address'}</button>
+        <button class="btn small" onclick={() => copy('dialog')}>{copied === 'dialog' ? 'Copied' : 'Copy address'}</button>
         <button class="btn primary" onclick={closeQr}>Done</button>
       </div>
     </div>
