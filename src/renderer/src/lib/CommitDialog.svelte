@@ -1,8 +1,17 @@
 <script lang="ts">
-  import { COMMIT_BINDS_BLOCKS, COMMIT_REPLACE_BLOCKS, blocksAsTime, bondErg, parseConfigDiff } from '@shared/mining'
+  import {
+    COMMIT_BINDS_BLOCKS,
+    COMMIT_DECLARE_BLOCKS,
+    COMMIT_REPLACE_BLOCKS,
+    blocksAsTime,
+    blocksAsWait,
+    bondErg,
+    fmtConfigDiff,
+    parseConfigDiff
+  } from '@shared/mining'
   import { fmtErg } from './format'
   import Modal from './Modal.svelte'
-  import { restartClient, saveClientSettings, ui } from './store.svelte'
+  import { chainCommitment, miningBalanceTarget, restartClient, saveClientSettings, ui } from './store.svelte'
 
   const network = ui.network
   let understood = $state(false)
@@ -13,7 +22,11 @@
   const diff = $derived(settings?.diff ?? null)
   const bond = $derived(diff ? bondErg(parseConfigDiff(diff) ?? 0) : null)
   const balance = $derived(ui.wallet.balanceNanoErg)
+  const target = $derived(miningBalanceTarget())
   const clientRunning = $derived(ui.client.status === 'running' && ui.client.network === network)
+  const chain = $derived(chainCommitment())
+  const untilDeclared = $derived(chain?.blocksToDeclared ? blocksAsWait(chain.blocksToDeclared, network) : null)
+  const untilEffect = $derived(chain?.blocksLeft ? blocksAsWait(chain.blocksLeft, network) : null)
 
   function close(): void {
     if (!busy) ui.dialog = null
@@ -49,10 +62,40 @@
         you and commits <b class="mono">{diff}</b> for you.
       </p>
 
+      {#if chain?.pending}
+        <p class="info-note">
+          {#if chain.committed}
+            Your new commitment of <b class="mono">{fmtConfigDiff(chain.pending)}</b> is on chain. NISP submission under
+            it begins at block <b class="mono">{chain.fromHeight}</b>, when it takes effect{#if untilEffect}, in about
+              {untilEffect}{/if}. Until then <b class="mono">{fmtConfigDiff(chain.committed)}</b> stays in effect.
+          {:else}
+            Your commitment of <b class="mono">{fmtConfigDiff(chain.pending)}</b> is on chain.
+            {#if chain.early}
+              You can start mining at block <b class="mono">{chain.declaredHeight}</b>, its declared height{#if untilDeclared},
+                in about {untilDeclared}{/if}, to build super shares.
+            {:else}
+              It was declared at block <b class="mono">{chain.declaredHeight}</b>, so mining now builds super shares.
+            {/if}
+            NISP submission begins at block <b class="mono">{chain.fromHeight}</b>, when it takes effect{#if untilEffect},
+              in about {untilEffect}{/if}.
+          {/if}
+        </p>
+      {/if}
+
       <ul class="facts">
         <li>
+          <span class="micro">Declared</span>
+          <span>
+            {COMMIT_DECLARE_BLOCKS} blocks after it's sent, {blocksAsTime(COMMIT_DECLARE_BLOCKS, network)}. You can start
+            mining at this height to build super shares.
+          </span>
+        </li>
+        <li>
           <span class="micro">Takes effect</span>
-          <span>{COMMIT_BINDS_BLOCKS} blocks after it's sent, {blocksAsTime(COMMIT_BINDS_BLOCKS, network)}.</span>
+          <span>
+            {COMMIT_BINDS_BLOCKS} blocks after it's sent, {blocksAsTime(COMMIT_BINDS_BLOCKS, network)}. NISP submission
+            begins at this height.
+          </span>
         </li>
         <li>
           <span class="micro">Locked for</span>
@@ -74,10 +117,15 @@
         </li>
       </ul>
 
-      <div class="balance" class:empty={balance === 0}>
+      <div class="balance">
         <span class="micro">Wallet balance</span>
         <span class="mono">{balance === null ? 'unknown (unlock the wallet)' : `${fmtErg(balance)} ERG`}</span>
-        {#if balance === 0}<span class="warn">Fund the wallet first, or proofs will fail to build.</span>{/if}
+        {#if balance !== null && balance < target.nanoErg}
+          <span class="warn">
+            We recommend at least {fmtErg(target.nanoErg)} ERG to commit {diff} and submit proofs. Send some to this
+            wallet's address, shown on the Wallet card, before you commit.
+          </span>
+        {/if}
       </div>
 
       {#if settings?.forceConfigDiff}

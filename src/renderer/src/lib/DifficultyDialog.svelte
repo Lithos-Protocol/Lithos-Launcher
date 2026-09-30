@@ -1,9 +1,11 @@
 <script lang="ts">
   import {
+    COMMIT_REPLACE_BLOCKS,
     CONFIG_DIFF_RE,
     PICKS,
     WINDOW_BLOCKS,
     blocksAsTime,
+    blocksAsWait,
     bondErg,
     diffFor,
     fmtConfigDiff,
@@ -12,10 +14,11 @@
     miningSeconds,
     parseConfigDiff,
     parseHashrate,
-    payChance
+    payChance,
+    sameDiff
   } from '@shared/mining'
   import Modal from './Modal.svelte'
-  import { restartClient, saveClientSettings, ui } from './store.svelte'
+  import { chainCommitment, restartClient, saveClientSettings, ui } from './store.svelte'
 
   const network = ui.network
   const current = ui.clientSettings?.diff ?? null
@@ -49,7 +52,9 @@
   const selectedMean = $derived(hashrate && selectedValue ? meanFor(hashrate, seconds, selectedValue) : null)
 
   const clientRunning = $derived(ui.client.status === 'running' && ui.client.network === network)
-  const committed = $derived(ui.clientStats?.committed ? fmtConfigDiff(Number(ui.clientStats.committed)) : null)
+  const chain = $derived(chainCommitment())
+  const autoCommit = $derived(ui.clientSettings?.autoCommit ?? false)
+  const pendingWait = $derived(chain?.blocksLeft != null ? blocksAsWait(chain.blocksLeft, network) : null)
 
   function close(): void {
     if (!busy) ui.dialog = null
@@ -81,6 +86,20 @@
       ({blocksAsTime(WINDOW_BLOCKS, network)} on {network}). Your difficulty sets both your cut of each payout and how
       often you manage that proof. Enter your miner's hashrate and the launcher works out the value to use.
     </p>
+
+    {#if chain?.pending}
+      <p class="warn-note" role="alert">
+        Your commitment of <b class="mono">{fmtConfigDiff(chain.pending)}</b> hasn't taken effect yet: it does at block
+        <b class="mono">{chain.fromHeight}</b>{#if pendingWait}, in about {pendingWait}{/if}. Changing your difficulty
+        now won't change it: a commitment is locked for {blocksAsTime(COMMIT_REPLACE_BLOCKS, network)} after it's sent.
+        {#if autoCommit}
+          Auto-commit sends your new difficulty once that lock ends.
+        {:else}
+          Auto-commit is off, so your new difficulty won't be committed at all, and only
+          <b class="mono">{fmtConfigDiff(chain.pending)}</b> is used.
+        {/if}
+      </p>
+    {/if}
 
     <div class="field">
       <label class="micro" for="hashrate">Your miner's hashrate</label>
@@ -182,10 +201,15 @@
       {/if}
     {/if}
 
-    {#if committed && selected && committed !== selected}
+    {#if !chain?.pending && chain?.committed && selectedValue && !sameDiff(selectedValue, chain.committed)}
       <p class="note">
-        Your on-chain commitment stays at <b class="mono">{committed}</b> until auto-commit sends the change, which the
-        contracts allow {blocksAsTime(845, network)} after the last one.
+        Your on-chain commitment stays at <b class="mono">{fmtConfigDiff(chain.committed)}</b>
+        {#if autoCommit}
+          until auto-commit sends the change, which the contracts allow {blocksAsTime(COMMIT_REPLACE_BLOCKS, network)}
+          after the last one.
+        {:else}
+          and only it is used: auto-commit is off, so your new difficulty won't be committed.
+        {/if}
       </p>
     {/if}
     {#if current}

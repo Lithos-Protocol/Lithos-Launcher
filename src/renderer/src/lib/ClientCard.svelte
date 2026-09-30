@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { fmtConfigDiff, fmtHashrate } from '@shared/mining'
+  import { blocksAsWait, fmtConfigDiff, fmtHashrate, parseConfigDiff, sameDiff } from '@shared/mining'
   import { DEFAULT_REDUCTION_MULTIPLIER, type ProcStatus } from '@shared/types'
   import StatusDot from './StatusDot.svelte'
   import {
+    chainCommitment,
     clientRequirements,
     copyApiKey,
     copyText,
@@ -43,39 +44,74 @@
   const lanPanelUrl = $derived(settings?.lanPanel && lanHost && httpPort ? `http://${lanHost}:${httpPort}/` : null)
 
   const hashrate = $derived(stats?.hashesPerSecond ? fmtHashrate(stats.hashesPerSecond).split(' ') : null)
-  const score = (s: string | null): string => (s ? fmtConfigDiff(Number(s)) : '—')
+  const chain = $derived(chainCommitment())
 
   /** Where the on-chain commitment stands: a headline figure and one line under it. */
   const commitment = $derived.by((): { value: string; text: string; ok: boolean } => {
-    if (stats?.committed && stats.pending) {
+    if (chain?.committed && chain.pending) {
       return {
-        value: score(stats.committed),
-        text: `${score(stats.pending)} from block ${stats.pendingFromHeight ?? '?'}`,
+        value: fmtConfigDiff(chain.committed),
+        text: `${fmtConfigDiff(chain.pending)} from block ${chain.fromHeight}`,
         ok: true
       }
     }
-    if (stats?.committed) return { value: score(stats.committed), text: 'Committed on chain', ok: true }
-    if (stats?.pending) {
-      return { value: score(stats.pending), text: `Takes effect at block ${stats.pendingFromHeight ?? '?'}`, ok: false }
+    if (chain?.committed) return { value: fmtConfigDiff(chain.committed), text: 'Committed on chain', ok: true }
+    if (chain?.pending) {
+      return {
+        value: fmtConfigDiff(chain.pending),
+        text: `Declared at block ${chain.declaredHeight}, in effect at ${chain.fromHeight}`,
+        ok: false
+      }
     }
     if (settings?.forceConfigDiff) return { value: '—', text: 'Paused while test mining', ok: false }
     if (settings?.autoCommit) return { value: '—', text: running ? 'Auto-commit on, registering…' : 'Auto-commit on', ok: false }
+    if (!chain) return { value: '—', text: running ? 'Reading the chain…' : 'Unknown until the client runs', ok: false }
     return { value: '—', text: 'Not committed', ok: false }
   })
+  const commitmentSource = $derived(
+    chain && !chain.live
+      ? `As the client last read it${chain.readAt ? `, at block ${chain.readAt}` : ''}. Updates when it runs again.`
+      : undefined
+  )
 
   /** The few things a newcomer must act on, instead of reading warnings in the log. */
   const warnings = $derived.by((): string[] => {
     if (!running) return []
     const list: string[] = []
     const testMode = Boolean(settings?.forceConfigDiff || stats?.forcedConfig)
-    if (!testMode && !settings?.autoCommit && !stats?.committed) {
-      list.push('Mining, but not committed on chain: no payouts until you commit your difficulty.')
+    if (!testMode && !settings?.autoCommit) {
+      if (!chain?.latest) {
+        list.push('Mining, but not committed on chain: no payouts until you commit your difficulty.')
+      } else if (settings?.diff && !sameDiff(parseConfigDiff(settings.diff), chain.latest)) {
+        const onChain = fmtConfigDiff(chain.latest)
+        list.push(
+          `Your difficulty is set to ${settings.diff}, but your on-chain commitment is ${onChain}. Auto-commit is off, ` +
+            `so ${settings.diff} won't be committed: only your commitment of ${onChain} is used.`
+        )
+      }
     }
-    if (ui.wallet.balanceNanoErg === 0) {
-      list.push('The wallet has no ERG. Each proof needs a small refundable bond, so fund it before you commit.')
-    }
-    if (stats && stats.rigs === 0) list.push('No mining rigs connected yet.')
-    if (stats && stats.rigs > 0 && !stats.hashesPerSecond && (settings?.reductionMultiplier ?? DEFAULT_REDUCTION_MULTIPLIER) >= 10000) {
+    if (!testMode && chain?.early) {
+      const at = chain.declaredHeight
+      list.push(
+        chain.blocksToDeclared !== null
+          ? `You should not start mining until block ${at}, your commitment's declared height. The height is currently ` +
+              `${chain.height}, so it will take an estimated ${blocksAsWait(chain.blocksToDeclared, shownNetwork)}.`
+          : `You should not start mining until block ${at}, your commitment's declared height.`
+      )
+      list.push('Your client does not need to be on while waiting for commitments.')
+      if (stats && stats.rigs > 0) {
+        list.push(`Your rigs are mining before block ${at}. You will not be paid for this mining.`)
+      }
+    } else if (!testMode && chain?.waiting) {
+      list.push(
+        `Your commitment is declared, so mining now builds super shares for it. NISP submission begins at block ` +
+          `${chain.fromHeight}, when it takes effect` +
+          (chain.blocksLeft !== null ? `, in about ${blocksAsWait(chain.blocksLeft, shownNetwork)}.` : '.')
+      )
+      if (stats && stats.rigs === 0) list.push('No mining rigs connected yet.')
+    } else if (stats && stats.rigs === 0) {
+      list.push('No mining rigs connected yet.')
+    } else if (stats && stats.rigs > 0 && !stats.hashesPerSecond && (settings?.reductionMultiplier ?? DEFAULT_REDUCTION_MULTIPLIER) >= 10000) {
       list.push(
         'Rig connected, no hashrate yet: with super-shares-only reporting a reading can take a while. Adjust Share reporting to 100× for a quicker one.'
       )
@@ -203,8 +239,9 @@
         <button class="link micro" onclick={() => (ui.dialog = 'shares')}>Adjust</button>
       </div>
       {#if !running}
-        <div class="chip">
+        <div class="chip" title={commitmentSource}>
           <span class="micro">Commitment</span>
+          {#if commitment.value !== '—'}<span class="val num">{commitment.value}</span>{/if}
           <span class="val" class:ok={commitment.ok} class:warn={!commitment.ok}>{commitment.text}</span>
           <button class="link micro" onclick={() => (ui.dialog = 'commit')}>
             {settings?.autoCommit ? 'Details' : 'Commit…'}

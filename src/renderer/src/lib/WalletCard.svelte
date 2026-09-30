@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { bondErg, parseConfigDiff } from '@shared/mining'
+  import { fmtConfigDiff, recommendedBalanceNanoErg } from '@shared/mining'
   import QRCode from 'qrcode'
   import { fmtErg, fmtInt, fmtPct, shortAddress } from './format'
   import Modal from './Modal.svelte'
   import ProgressBar from './ProgressBar.svelte'
-  import { copyText, ui, unlockWallet, walletScan } from './store.svelte'
+  import { copyText, miningBalanceTarget, ui, unlockWallet, walletScan } from './store.svelte'
 
   let password = $state('')
   let remember = $state(true)
@@ -16,11 +16,13 @@
 
   const w = $derived(ui.wallet)
   const secure = $derived(ui.vault?.secure ?? false)
-  const diffValue = $derived(parseConfigDiff(ui.clientSettings?.diff))
-  const bond = $derived(diffValue ? bondErg(diffValue) : null)
   // A restored or imported wallet scans the whole chain for its history; show how far it has got.
   const scan = $derived(walletScan())
   const balance = $derived(w.balanceNanoErg === null ? null : fmtErg(w.balanceNanoErg).split('.'))
+  const target = $derived(miningBalanceTarget())
+  // Name the difficulty only when it's what pushed the target above the floor.
+  const scaled = $derived(target.nanoErg > recommendedBalanceNanoErg(null) && target.diff !== null)
+  const low = $derived(w.balanceNanoErg !== null && w.balanceNanoErg < target.nanoErg)
 
   async function unlock(event: SubmitEvent): Promise<void> {
     event.preventDefault()
@@ -119,7 +121,7 @@
     {:else}
       <div class="balance">
         <span class="micro">Balance</span>
-        <span class="big num" class:zero={w.balanceNanoErg === 0}>
+        <span class="big num" class:low>
           {#if balance}{balance[0]}{#if balance[1]}<span class="dec">.{balance[1]}</span>{/if}{:else}—{/if}<span
             class="unit">ERG</span
           >
@@ -146,11 +148,12 @@
           </span>
         </div>
       {/if}
-      {#if w.balanceNanoErg === 0 && !scan}
+      {#if low && !scan}
         <p class="warn-note">
-          Send some ERG to this address. Each proof you submit posts a small refundable bond{bond
-            ? ` (${bond.toFixed(4)} ERG at your difficulty)`
-            : ''} plus a fee.
+          {#if scaled}At your difficulty of <b>{fmtConfigDiff(target.diff!)}</b>, we{:else}We{/if} recommend at least
+          <b>{fmtErg(target.nanoErg)} ERG</b> in this wallet to commit your difficulty and submit proofs. Send some to the
+          address above. You can send more if you also want to use the DEX and
+          collateral market.
         </p>
       {/if}
       <p class="note">
@@ -258,7 +261,7 @@
     line-height: 1;
   }
 
-  .big.zero {
+  .big.low {
     color: var(--amber-light);
   }
 

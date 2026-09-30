@@ -29,6 +29,7 @@ const api: LauncherApi = {
   getClientSettings: (network) => ipcRenderer.invoke(IPC.getClientSettings, network),
   setClientSettings: (network, patch) => ipcRenderer.invoke(IPC.setClientSettings, network, patch),
   getClientStats: () => ipcRenderer.invoke(IPC.getClientStats),
+  getCommitments: () => ipcRenderer.invoke(IPC.getCommitments),
   getNodeSettings: (network) => ipcRenderer.invoke(IPC.getNodeSettings, network),
   setNodeSettings: (network, patch) => ipcRenderer.invoke(IPC.setNodeSettings, network, patch),
   getSystemCheck: (network) => ipcRenderer.invoke(IPC.getSystemCheck, network),
@@ -61,7 +62,8 @@ const api: LauncherApi = {
   onLogs: (cb) => subscribe(IPC.logs, cb),
   onNodeInfo: (cb) => subscribe(IPC.nodeInfo, cb),
   onWallet: (cb) => subscribe(IPC.wallet, cb),
-  onClientStats: (cb) => subscribe(IPC.clientStats, cb)
+  onClientStats: (cb) => subscribe(IPC.clientStats, cb),
+  onCommitments: (cb) => subscribe(IPC.commitments, cb)
 }
 
 contextBridge.exposeInMainWorld('lithos', api)

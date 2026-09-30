@@ -158,18 +158,31 @@ export type ClientSettingsPatch = Partial<
   >
 >
 
-/** Live figures from the running client's open stats endpoints. Scores are integer strings. */
+/** Live figures from the running client's open stats endpoints. */
 export interface ClientStats {
   stratumStatus: string | null
   rigs: number
   hashesPerSecond: number | null
   superShares: number
   superSharesPerHour: number | null
-  committed: string | null
-  pending: string | null
-  pendingFromHeight: number | null
   forcedConfig: boolean
 }
+
+/**
+ * This miner's difficulty commitment as the Lithos Client last read it from the chain; scores are
+ * integer strings. Kept per network for the session, so it still shows after the client stops.
+ */
+export interface CommitmentRead {
+  /** The score NISPs are judged against now; null until any commitment has taken effect. */
+  committed: string | null
+  /** A newer commitment still waiting to take effect, at `pendingFromHeight`. */
+  pending: string | null
+  pendingFromHeight: number | null
+  /** The chain height the client read it at; null on clients that don't report it. */
+  checkedHeight: number | null
+}
+
+export type CommitmentReads = Partial<Record<Network, CommitmentRead>>
 
 /** What an existing setup contains, shown before anything is changed. */
 export interface ImportPreview {
@@ -312,6 +325,8 @@ export interface LauncherApi {
   /** Saves to lithos.conf. The running client picks changes up on its next start. */
   setClientSettings(network: Network, patch: ClientSettingsPatch): Promise<ClientSettings>
   getClientStats(): Promise<ClientStats | null>
+  /** Commitments the client has read this session, by network. */
+  getCommitments(): Promise<CommitmentReads>
   getNodeSettings(network: Network): Promise<NodeSettings>
   /** Saves to ergo.conf. The node picks changes up on its next start. */
   setNodeSettings(network: Network, patch: NodeSettingsPatch): Promise<NodeSettings>
@@ -364,6 +379,7 @@ export interface LauncherApi {
   onNodeInfo(cb: (info: NodeInfo | null) => void): () => void
   onWallet(cb: (w: WalletState) => void): () => void
   onClientStats(cb: (s: ClientStats | null) => void): () => void
+  onCommitments(cb: (c: CommitmentReads) => void): () => void
 }
 
 export const IPC = {
@@ -387,6 +403,7 @@ export const IPC = {
   getClientSettings: 'client:get-settings',
   setClientSettings: 'client:set-settings',
   getClientStats: 'client:get-stats',
+  getCommitments: 'client:get-commitments',
   getNodeSettings: 'node:get-settings',
   setNodeSettings: 'node:set-settings',
   getSystemCheck: 'launcher:system-check',
@@ -419,5 +436,6 @@ export const IPC = {
   logs: 'evt:logs',
   nodeInfo: 'evt:node-info',
   wallet: 'evt:wallet',
-  clientStats: 'evt:client-stats'
+  clientStats: 'evt:client-stats',
+  commitments: 'evt:commitments'
 } as const
