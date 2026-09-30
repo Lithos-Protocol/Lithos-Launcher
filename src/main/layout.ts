@@ -35,9 +35,9 @@ export const layout = {
   clientConf: (root: string, net: Network) => join(root, net, 'client', 'lithos.conf')
 }
 
-/** Default Ergo ports (re-exported for call sites that still import from layout). */
-export { DEFAULT_NODE_API_PORT as NODE_API_PORT, DEFAULT_NODE_P2P_PORT as NODE_P2P_PORT } from '@shared/types'
 export const CLIENT_DEFAULT_PORTS = { http: 9000, stratum: 4444 }
+/** lithos.conf keys for the client's ports; ergoConf reads them too, to keep the node off them. */
+export const CLIENT_PORT_KEYS = { http: 'play.server.http.port', stratum: 'stratum.stratumPort' } as const
 
 /** JVM heap limits sized from system RAM. Starting points; tune with real usage. */
 export function autoHeap(totalBytes = totalmem()): { nodeMb: number; clientMb: number } {

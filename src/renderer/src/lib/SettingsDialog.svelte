@@ -124,10 +124,12 @@
 
   const saveNode = (): Promise<void> =>
     run(async () => {
+      // A blank field means Ergo's default, which the placeholder shows.
+      const port = (v: string, fallback: number): number => (v.trim() === '' ? fallback : Number(v))
       const saved = await api.setNodeSettings(network, {
         offlineGeneration,
-        apiPort: Number(apiPort),
-        p2pPort: Number(p2pPort)
+        apiPort: port(apiPort, DEFAULT_NODE_API_PORT[network]),
+        p2pPort: port(p2pPort, DEFAULT_NODE_P2P_PORT[network])
       })
       offlineGeneration = saved.offlineGeneration
       apiPort = String(saved.apiPort)

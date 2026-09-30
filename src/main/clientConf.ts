@@ -9,7 +9,7 @@ import {
   type Network
 } from '@shared/types'
 import { readNodeSettings } from './ergoConf'
-import { CLIENT_DEFAULT_PORTS, layout } from './layout'
+import { CLIENT_DEFAULT_PORTS, CLIENT_PORT_KEYS, layout } from './layout'
 import { readManagedNumber, readManagedValue, updateManagedLines, writeManagedBlock } from './managedBlock'
 
 /** Environment variables the client reads its secrets from (names from the client README). */
@@ -21,8 +21,8 @@ export const CLIENT_ENV = {
 
 const KEYS = {
   httpAddress: 'play.server.http.address',
-  httpPort: 'play.server.http.port',
-  stratumPort: 'stratum.stratumPort',
+  httpPort: CLIENT_PORT_KEYS.http,
+  stratumPort: CLIENT_PORT_KEYS.stratum,
   diff: 'stratum.diff',
   autoCommit: 'state.autoCommit',
   forceConfigDiff: 'stratum.forceConfigDiff',

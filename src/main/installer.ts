@@ -19,9 +19,8 @@ import {
   removeOtherErgo,
   type ErgoRelease
 } from './ergo'
-import { HELLO_HASH, writeNodeConf } from './ergoConf'
+import { HELLO_HASH, readNodeSettings, writeNodeConf } from './ergoConf'
 import { detectJre, installJre } from './java'
-import { readNodeSettings } from './ergoConf'
 import { layout } from './layout'
 import {
   clientUpdate,

@@ -7,7 +7,7 @@ import {
   type NodeSettings,
   type NodeSettingsPatch
 } from '@shared/types'
-import { CLIENT_DEFAULT_PORTS, layout } from './layout'
+import { CLIENT_DEFAULT_PORTS, CLIENT_PORT_KEYS, layout } from './layout'
 import { readManagedNumber, readManagedValue, updateManagedLines, writeManagedBlock } from './managedBlock'
 
 /** blake2b256("hello"): the documented default key, used only for the first boot. */
@@ -86,8 +86,8 @@ export async function updateNodeSettings(
   if (next.apiPort === next.p2pPort) throw new Error('The Ergo API and peer ports must be different')
   // Read client ports directly to avoid a circular import with clientConf.
   const clientFile = layout.clientConf(root, network)
-  const httpPort = (await readManagedNumber(clientFile, 'play.server.http.port')) ?? CLIENT_DEFAULT_PORTS.http
-  const stratumPort = (await readManagedNumber(clientFile, 'stratum.stratumPort')) ?? CLIENT_DEFAULT_PORTS.stratum
+  const httpPort = (await readManagedNumber(clientFile, CLIENT_PORT_KEYS.http)) ?? CLIENT_DEFAULT_PORTS.http
+  const stratumPort = (await readManagedNumber(clientFile, CLIENT_PORT_KEYS.stratum)) ?? CLIENT_DEFAULT_PORTS.stratum
   if (next.apiPort === httpPort || next.apiPort === stratumPort) {
     throw new Error(`The Ergo API port can't use ${next.apiPort}: the Lithos Client needs it`)
   }
