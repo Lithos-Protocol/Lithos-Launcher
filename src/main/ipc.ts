@@ -232,6 +232,7 @@ export function registerIpc(ctx: IpcContext): void {
   handle(IPC.getClientSettings, (n) => readClientSettings(ctx.root, asNetwork(n)))
   handle(IPC.setClientSettings, (n, patch) => updateClientSettings(ctx.root, asNetwork(n), asSettingsPatch(patch)))
   handle(IPC.getClientStats, () => ctx.client.stats)
+  handle(IPC.getCommitments, () => ctx.client.commitments)
   handle(IPC.getNodeSettings, (n) => readNodeSettings(ctx.root, asNetwork(n)))
   handle(IPC.setNodeSettings, (n, patch) => updateNodeSettings(ctx.root, asNetwork(n), asNodeSettingsPatch(patch)))
   handle(IPC.getSystemCheck, (n) => systemCheck(ctx.root, asNetwork(n)))

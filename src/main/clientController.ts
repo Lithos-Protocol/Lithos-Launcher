@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { hostname } from 'node:os'
 import { syncView } from '@shared/sync'
-import type { ClientStats, Network } from '@shared/types'
+import type { ClientStats, CommitmentRead, CommitmentReads, Network, WalletState } from '@shared/types'
 import { CLIENT_ENV, managedClientKeys, readClientSettings, TEST_MODE_LINES, writeClientConf } from './clientConf'
 import { diagnose } from './diagnose'
 import { interrupt } from './interrupt'
@@ -24,6 +24,10 @@ const STATS_POLL_MS = 10_000
 /** Thrown inside a start flow that a later start/stop superseded. */
 class Cancelled extends Error {}
 
+const num = (v: unknown): number | null =>
+  typeof v === 'number' ? v : typeof v === 'string' && v !== '' && !isNaN(Number(v)) ? Number(v) : null
+const str = (v: unknown): string | null => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : null)
+
 /** Runs the Lithos Client against the launcher's node and wallet. */
 export class ClientController {
   readonly proc = new ManagedProcess('client')
@@ -33,6 +37,10 @@ export class ClientController {
   private expectExit = false
   private statsToken = 0
   private lastStats: ClientStats | null = null
+  /** The last commitment read per network, kept for the session after the client stops. */
+  private reads: CommitmentReads = {}
+  /** The wallet address each read belongs to, so another wallet on that network drops it. */
+  private readers: Partial<Record<Network, string | null>> = {}
 
   constructor(
     private readonly root: string,
@@ -41,13 +49,19 @@ export class ClientController {
     private readonly wallet: WalletManager,
     /** Development only: allow starting before the node is synced. */
     private readonly skipSyncGate: boolean,
-    private readonly emitStats: (stats: ClientStats | null) => void
+    private readonly emitStats: (stats: ClientStats | null) => void,
+    private readonly emitCommitments: (reads: CommitmentReads) => void
   ) {
     this.proc.on('exit', (code: number | null) => this.onExit(code))
+    this.wallet.on('state', (w: WalletState) => this.onWallet(w))
   }
 
   get stats(): ClientStats | null {
     return this.lastStats
+  }
+
+  get commitments(): CommitmentReads {
+    return this.reads
   }
 
   get runningNetwork(): Network | null {
@@ -172,9 +186,9 @@ export class ClientController {
           ? `Test mining at ${settings.diff}: transforms, emissions, broadcasts and block transactions are off, so no transactions are sent`
           : settings.autoCommit
             ? `Difficulty ${settings.diff}, auto-commit on`
-            : `Difficulty ${settings.diff}, auto-commit off (not registered on chain, so no payouts yet)`
+            : `Difficulty ${settings.diff}, auto-commit off: nothing new is committed, so only a commitment already on chain is used`
       )
-      this.startStats(ports.http)
+      this.startStats(ports.http, network)
     } catch (err) {
       if (err instanceof Cancelled || gen !== this.generation) {
         if (this.proc.alive && this.proc.state.status !== 'stopping') {
@@ -265,7 +279,7 @@ export class ClientController {
   }
 
   /** Polls the client's open stats endpoints (no API key needed) while it runs. */
-  private startStats(port: number): void {
+  private startStats(port: number, network: Network): void {
     const token = ++this.statsToken
     const get = async (path: string): Promise<Record<string, unknown> | null> => {
       try {
@@ -275,13 +289,11 @@ export class ClientController {
         return null
       }
     }
-    const num = (v: unknown): number | null => (typeof v === 'number' ? v : typeof v === 'string' && v !== '' && !isNaN(Number(v)) ? Number(v) : null)
-    const str = (v: unknown): string | null => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : null)
     const tick = async (): Promise<void> => {
       const [overview, workers] = await Promise.all([get('/stats'), get('/stats/mining/workers')])
       if (token !== this.statsToken) return
       const stratum = ((overview?.local as Record<string, unknown> | undefined)?.stratum ?? {}) as Record<string, unknown>
-      const diff = (stratum.difficulty ?? {}) as Record<string, unknown>
+      const diff = stratum.difficulty as Record<string, unknown> | undefined
       if (overview || workers) {
         this.lastStats = {
           stratumStatus: str(stratum.status),
@@ -289,16 +301,43 @@ export class ClientController {
           hashesPerSecond: num(workers?.hashesPerSecond),
           superShares: num(workers?.superShares) ?? 0,
           superSharesPerHour: num(workers?.superSharesPerHour),
-          committed: str(diff.committed),
-          pending: str(diff.pending),
-          pendingFromHeight: num(diff.pendingFromHeight),
-          forcedConfig: diff.forcedConfig === true
+          forcedConfig: diff?.forcedConfig === true
         }
         this.emitStats(this.lastStats)
       }
+      if (diff) this.remember(network, diff)
       if (token === this.statsToken) setTimeout(tick, STATS_POLL_MS)
     }
     void tick()
+  }
+
+  private remember(network: Network, diff: Record<string, unknown>): void {
+    const read: CommitmentRead = {
+      committed: str(diff.committed),
+      pending: str(diff.pending),
+      pendingFromHeight: num(diff.pendingFromHeight),
+      checkedHeight: num(diff.checkedHeight)
+    }
+    // Nothing at all means the client couldn't read the list yet, not that there is no commitment.
+    if (read.committed === null && read.pending === null && read.checkedHeight === null) return
+    const w = this.wallet.state
+    this.readers[network] = (w.network === network ? w.address : null) ?? this.readers[network] ?? null
+    if (JSON.stringify(this.reads[network]) === JSON.stringify(read)) return
+    this.reads = { ...this.reads, [network]: read }
+    this.emitCommitments(this.reads)
+  }
+
+  /** A different wallet on a network makes what was read there someone else's commitment. */
+  private onWallet(w: WalletState): void {
+    const network = w.network
+    if (!network || !w.address || !this.reads[network]) return
+    const reader = this.readers[network]
+    if (reader === null || reader === undefined || reader === w.address) return
+    const next = { ...this.reads }
+    delete next[network]
+    delete this.readers[network]
+    this.reads = next
+    this.emitCommitments(this.reads)
   }
 
   private stopStats(): void {

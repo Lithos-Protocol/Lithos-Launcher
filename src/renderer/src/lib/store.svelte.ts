@@ -1,9 +1,11 @@
+import { WINDOW_BLOCKS, parseConfigDiff, recommendedBalanceNanoErg } from '@shared/mining'
 import { syncView } from '@shared/sync'
 import type {
   ApiKeyName,
   ClientSettings,
   ClientSettingsPatch,
   ClientStats,
+  CommitmentReads,
   Network,
   NetworkState,
   NodeInfo,
@@ -59,6 +61,8 @@ export const ui = $state({
   } as WalletState,
   clientSettings: null as ClientSettings | null,
   clientStats: null as ClientStats | null,
+  /** Commitments the client read this session, by network; they stay after it stops. */
+  commitments: {} as CommitmentReads,
   /** Start the client by itself once everything it needs is ready. */
   autoStartClient: savedAutoStart(),
   /** The user pressed Start and chose to wait for the wallet scan; starts once it catches up. */
@@ -121,16 +125,19 @@ export async function init(): Promise<void> {
   api.onNodeInfo(applyNodeInfo)
   api.onWallet((w) => (ui.wallet = w))
   api.onClientStats((st) => (ui.clientStats = st))
+  api.onCommitments((c) => (ui.commitments = c))
   api.onProgress((p) => (ui.progress[p.task] = p))
 
-  const [app, node, client, info, wallet, stats] = await Promise.all([
+  const [app, node, client, info, wallet, stats, commitments] = await Promise.all([
     api.getAppInfo(),
     api.getProc('node'),
     api.getProc('client'),
     api.getNodeInfo(),
     api.getWallet(),
-    api.getClientStats()
+    api.getClientStats(),
+    api.getCommitments()
   ])
+  ui.commitments = commitments
   ui.platform = app.platform
   ui.sandboxed = app.sandboxed
   ui.appImage = app.appImage
@@ -383,6 +390,75 @@ export function clientRequirements(): Requirement[] {
     },
     { label: 'Difficulty chosen', ok: Boolean(ui.clientSettings?.diff), note: '' }
   ]
+}
+
+export interface ChainCommitment {
+  /** Score NISPs are judged against now; null until any commitment has taken effect. */
+  committed: number | null
+  /** A newer commitment still waiting to take effect at `fromHeight`, if the chain hasn't got there. */
+  pending: number | null
+  fromHeight: number | null
+  /** The newest commitment on chain, in effect or not. */
+  latest: number | null
+  /** Best known chain height, or null when neither the client nor the node has reported one. */
+  height: number | null
+  /** Blocks until `pending` takes effect, when the height is known. */
+  blocksLeft: number | null
+  /** The height `pending` declares, a window before it takes effect: from here rigs build super shares for it. */
+  declaredHeight: number | null
+  /** Blocks until the declared height, when the height is known; 0 once it's reached. */
+  blocksToDeclared: number | null
+  /** Nothing is in effect yet and the first commitment is still waiting. */
+  waiting: boolean
+  /** Waiting, and the declared height isn't known to be reached: mining now isn't paid. */
+  early: boolean
+  /** Read by the client running now, rather than remembered from an earlier run this session. */
+  live: boolean
+  /** The height the client read it at, when it says. */
+  readAt: number | null
+}
+
+/** This miner's commitment as the client last read it this session on the selected network, or null. */
+export function chainCommitment(): ChainCommitment | null {
+  const network = ui.network
+  const read = ui.commitments[network]
+  if (!read) return null
+  const reported = read.committed ? Number(read.committed) : null
+  const newest = read.pending ? Number(read.pending) : null
+  // Both heights are polled anyway, so the newer of the two costs no extra node calls.
+  const nodeHeight = ui.node.status === 'running' && ui.node.network === network ? ui.info?.fullHeight : null
+  const height = Math.max(read.checkedHeight ?? 0, nodeHeight ?? 0) || null
+  const from = read.pendingFromHeight
+  const ahead = newest !== null && from !== null && (height === null || height < from)
+  const pending = ahead ? newest : null
+  // Past its height the pending one is in effect, even before the client reads the list again.
+  const committed = ahead ? reported : (newest ?? reported)
+  const declared = ahead ? from! - WINDOW_BLOCKS : null
+  const blocksToDeclared = declared !== null && height !== null ? Math.max(0, declared - height) : null
+  const waiting = ahead && committed === null
+  return {
+    committed,
+    pending,
+    fromHeight: ahead ? from : null,
+    latest: pending ?? committed,
+    height,
+    blocksLeft: ahead && height !== null ? from! - height : null,
+    declaredHeight: declared,
+    blocksToDeclared,
+    waiting,
+    early: waiting && (blocksToDeclared === null || blocksToDeclared > 0),
+    live: ui.client.status === 'running' && ui.client.network === network,
+    readAt: read.checkedHeight
+  }
+}
+
+/**
+ * The balance to keep for committing and proofs, sized for the higher of the chosen and committed
+ * difficulty: proofs bond at the committed score, and a higher chosen one may be committed next.
+ */
+export function miningBalanceTarget(): { nanoErg: number; diff: number | null } {
+  const diff = Math.max(parseConfigDiff(ui.clientSettings?.diff) ?? 0, chainCommitment()?.latest ?? 0) || null
+  return { nanoErg: recommendedBalanceNanoErg(diff), diff }
 }
 
 /** The Start button (real mining): straight away if the wallet has caught up, otherwise ask whether to wait. */

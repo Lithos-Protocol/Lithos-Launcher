@@ -12,8 +12,13 @@ export const NISP_SHARES = 10
 export const NISP_COEFFICIENT = 10000
 /** A window's length in blocks. */
 export const WINDOW_BLOCKS = 60
-/** Blocks from sending a commitment until it binds, and until it may be replaced. */
-export const COMMIT_BINDS_BLOCKS = 125
+/**
+ * Blocks from sending a commitment to the height it declares: the contracts' one-window notice plus
+ * 5 for the transaction to be included. Rigs mining from there build super shares for it.
+ */
+export const COMMIT_DECLARE_BLOCKS = WINDOW_BLOCKS + 5
+/** Blocks from sending a commitment until it binds (NISP submission begins), and until it may be replaced. */
+export const COMMIT_BINDS_BLOCKS = COMMIT_DECLARE_BLOCKS + WINDOW_BLOCKS
 export const COMMIT_REPLACE_BLOCKS = 845
 
 export const BLOCK_SECONDS: Record<Network, number> = { testnet: 45, mainnet: 120 }
@@ -88,6 +93,15 @@ export function parseConfigDiff(text: string | null | undefined): number | null 
 }
 
 /**
+ * Whether two difficulties are the same score. A commitment comes back from the chain as an exact
+ * integer while a `diff` setting is written in K/M/G, so compare values, not strings.
+ */
+export function sameDiff(a: number | null, b: number | null): boolean {
+  if (a === null || b === null || !(a > 0) || !(b > 0)) return false
+  return Math.abs(a - b) <= Math.max(a, b) * 1e-6
+}
+
+/**
  * Hashes per second from what a miner types: "150 MH/s", "150M", "1.2 gh". The unit letter is
  * required: a bare number is almost always a hashrate typed without its unit.
  */
@@ -113,6 +127,36 @@ export function fmtHashrate(hps: number): string {
   return `${v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)} ${units[i]}`
 }
 
+/**
+ * What a mining wallet should hold to commit and submit proofs, as [diff, ERG] steps. Bonds grow with
+ * difficulty, so this does too: about 1.25 bonds up to 20G, and more headroom from 50G.
+ */
+const BALANCE_STEPS: readonly (readonly [number, number])[] = [
+  [1e9, 0.05],
+  [10e9, 0.5],
+  [20e9, 1],
+  [50e9, 5],
+  [100e9, 10]
+]
+
+/**
+ * The balance to keep at `diff`, in nanoERG: the step below 1G, straight lines between the steps,
+ * and 0.1 ERG per G past 100G. Rounded up to two significant figures so it reads as a target.
+ */
+export function recommendedBalanceNanoErg(diff: number | null): number {
+  const d = diff && diff > 0 ? diff : 0
+  const [floorDiff, floorErg] = BALANCE_STEPS[0]
+  const [lastDiff, lastErg] = BALANCE_STEPS[BALANCE_STEPS.length - 1]
+  let erg = d <= floorDiff ? floorErg : (lastErg * d) / lastDiff
+  for (let i = 1; i < BALANCE_STEPS.length; i++) {
+    const [d0, e0] = BALANCE_STEPS[i - 1]
+    const [d1, e1] = BALANCE_STEPS[i]
+    if (d > d0 && d <= d1) erg = e0 + ((d - d0) / (d1 - d0)) * (e1 - e0)
+  }
+  const step = 10 ** (Math.floor(Math.log10(erg)) - 1)
+  return Math.round(Math.ceil(erg / step - 1e-9) * step * 1e9)
+}
+
 /** The refundable bond each NISP submission posts, in ERG: max(0.002 ERG, diff / 25 nanoERG). */
 export const bondErg = (diff: number): number => Math.max(0.002, diff / 25 / 1e9)
 
@@ -122,4 +166,15 @@ export function blocksAsTime(blocks: number, network: Network): string {
   if (minutes < 90) return `about ${minutes} minutes`
   const hours = minutes / 60
   return hours < 48 ? `about ${Math.round(hours)} hours` : `about ${Math.round(hours / 24)} days`
+}
+
+/** A short wait of `blocks` on `network` to count down to, e.g. "1 hour 25 minutes" or "40 seconds". */
+export function blocksAsWait(blocks: number, network: Network): string {
+  const unit = (n: number, name: string): string => `${n} ${name}${n === 1 ? '' : 's'}`
+  const seconds = Math.max(0, Math.round(blocks * BLOCK_SECONDS[network]))
+  if (seconds < 60) return unit(seconds, 'second')
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return unit(minutes, 'minute')
+  const hours = Math.floor(minutes / 60)
+  return minutes % 60 ? `${unit(hours, 'hour')} ${unit(minutes % 60, 'minute')}` : unit(hours, 'hour')
 }
