@@ -29,29 +29,15 @@ export const COMMIT_REPLACE_BLOCKS = 845
 
 export const BLOCK_SECONDS: Record<Network, number> = { testnet: 45, mainnet: 120 }
 
-/**
- * The recommended starting average. Without a table generation time the hashing time is
- * overestimated (a rig pauses at every block), so the start aims one super share higher.
- */
-export const START_MEAN = 15
-export const START_MEAN_NO_TABLE_GEN = 16
-
-export type PickLabel = 'Start' | 'Peak' | 'Floor'
+/** The recommended starting average, as the client's Difficulty page recommends it. */
+export const START_MEAN = 17
 
 /** The averages the guide names: where to start, the peak, and the floor of the ideal range. */
-export function picks(tableGenKnown: boolean): { mean: number; label: PickLabel; note: string }[] {
-  return [
-    {
-      mean: tableGenKnown ? START_MEAN : START_MEAN_NO_TABLE_GEN,
-      label: 'Start',
-      note: tableGenKnown
-        ? 'Recommended starting point.'
-        : 'Recommended starting point. One super share above 15 to allow for table generation time.'
-    },
-    { mean: 13, label: 'Peak', note: 'Highest expected earnings, once your hashrate is known.' },
-    { mean: 10, label: 'Floor', note: 'Biggest cut, paid about half the time. Never go below.' }
-  ]
-}
+export const PICKS = [
+  { mean: START_MEAN, label: 'Start', note: 'Recommended starting point.' },
+  { mean: 15, label: 'Peak', note: 'A bigger cut, once your hashrate is known and steady.' },
+  { mean: 10, label: 'Floor', note: 'Biggest cut, paid about half the time. Never go below.' }
+] as const
 
 export const windowSeconds = (network: Network): number => WINDOW_BLOCKS * BLOCK_SECONDS[network]
 

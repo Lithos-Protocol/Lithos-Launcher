@@ -2,8 +2,7 @@
   import {
     COMMIT_REPLACE_BLOCKS,
     CONFIG_DIFF_RE,
-    picks as picksFor,
-    type PickLabel,
+    PICKS,
     WINDOW_BLOCKS,
     blocksAsTime,
     blocksAsWait,
@@ -28,19 +27,18 @@
   let tableMsText = $state('')
   let customText = $state('')
   let advanced = $state(false)
-  let chosen = $state<PickLabel>('Start')
+  let chosen = $state<(typeof PICKS)[number]['label']>('Start')
   let busy = $state(false)
   let error = $state<string | null>(null)
 
   const measured = $derived(ui.clientStats?.hashesPerSecond ?? null)
   const hashrate = $derived(parseHashrate(hashrateText))
-  const tableMsGiven = $derived(tableMsText.trim() !== '')
-  const tableMs = $derived(tableMsGiven ? Number(tableMsText) : 0)
+  const tableMs = $derived(tableMsText.trim() === '' ? 0 : Number(tableMsText))
   const tableMsOk = $derived(Number.isFinite(tableMs) && tableMs >= 0)
   const seconds = $derived(miningSeconds(network, tableMsOk ? tableMs : 0))
 
   const picks = $derived(
-    picksFor(tableMsGiven && tableMsOk).map((p) => ({
+    PICKS.map((p) => ({
       ...p,
       diff: hashrate && seconds > 0 ? fmtConfigDiff(diffFor(hashrate, seconds, p.mean)) : null,
       chance: payChance(p.mean)
