@@ -16,13 +16,18 @@ export interface ComponentState {
   version: string | null
 }
 
+export interface RunnableState extends ComponentState {
+  /** Why the installed version is retired (see shared/versions.ts) and won't start, or null. */
+  retired: string | null
+}
+
 export interface NetworkState {
   network: Network
   /** Folder holding this network's node and client, for display only. */
   folder: string
   java: ComponentState
-  node: ComponentState & { apiPort: number }
-  client: ComponentState
+  node: RunnableState & { apiPort: number }
+  client: RunnableState
 }
 
 /**
@@ -57,6 +62,13 @@ export interface ReleaseList {
   active: string | null
   /** A newer release to update to in place: for the node, on the same database. */
   update: string | null
+  /** Why `active` is retired, or null. Retired releases are left out of `releases`. */
+  retired: string | null
+  /**
+   * The release to switch a retired `active` to: the newest one on its track (for the node, on its
+   * database), which may be older than `active`. Null when `active` isn't retired or none is listed.
+   */
+  replacement: string | null
   /** Node only: the database the existing chain data was written with, or null before there is any. */
   dataDb: ErgoDb | null
 }
@@ -184,18 +196,82 @@ export interface ClientStats {
   forcedConfig: boolean
 }
 
+/** One commitment and the heights it acts at, from the client's `GET /mining/commitment`. */
+export interface CommitmentEntry {
+  /** The committed score as an exact integer string; payouts are proportional to it. */
+  score: string
+  /** Super shares count toward it from here. Null when an older client didn't say. */
+  declaredHeight: number | null
+  /** The first height whose rollups judge NISPs against it (NISP submission begins). */
+  inForceFromHeight: number | null
+  /**
+   * The first block the stratum mines at it: just before the declared height for a first commitment
+   * or a raise, the in-force height for a cut. Only on a commitment not yet in force.
+   */
+  servedFromHeight: number | null
+}
+
+/** A registration or change that was sent but isn't part of `inForce` or `pending` yet. */
+export interface CommitmentInFlight {
+  txId: string
+  kind: 'registration' | 'change'
+  /** Set once it confirmed, while the client hasn't synced to this height yet. */
+  confirmedHeight: number | null
+  commitment: CommitmentEntry
+}
+
+/** Blocks from the tip a commitment is sent at until each thing happens. */
+export interface CommitmentTiming {
+  servedAfterBlocks: number
+  inForceAfterBlocks: number
+  replaceableAfterBlocks: number
+  windowBlocks: number
+}
+
+export type CommitmentState = 'unregistered' | 'registering' | 'waiting' | 'active' | 'unknown'
+
+/** Why the client won't send a commitment now. */
+export type CommitmentBlock = 'TRANSFORMS_DISABLED' | 'AUTO_COMMIT' | 'UNAVAILABLE' | 'IN_FLIGHT' | 'SYNCING' | 'LOCKED'
+
 /**
- * This miner's difficulty commitment as the Lithos Client last read it from the chain; scores are
- * integer strings. Kept per network for the session, so it still shows after the client stops.
+ * This miner's difficulty commitment as the Lithos Client last read it from the chain. Kept per
+ * network for the session, so it still shows after the client stops.
  */
 export interface CommitmentRead {
-  /** The score NISPs are judged against now; null until any commitment has taken effect. */
-  committed: string | null
-  /** A newer commitment still waiting to take effect, at `pendingFromHeight`. */
-  pending: string | null
-  pendingFromHeight: number | null
-  /** The chain height the client read it at; null on clients that don't report it. */
-  checkedHeight: number | null
+  state: CommitmentState
+  /** What the client is waiting on, or why it couldn't read. */
+  reason: string | null
+  /** The chain height it was read at. */
+  height: number | null
+  /** The commitment NISPs are judged against now. */
+  inForce: CommitmentEntry | null
+  /** A newer commitment waiting to come into force. */
+  pending: CommitmentEntry | null
+  inFlight: CommitmentInFlight | null
+  /** The first height the newest commitment can be replaced at. */
+  replaceableFromHeight: number | null
+  /** Whether the client would send a commitment now; it checks again when asked. */
+  canCommit: boolean
+  blockedReason: CommitmentBlock | null
+  /** Null from an older client. */
+  timing: CommitmentTiming | null
+  /**
+   * False when read from an older client's stats (no commitment API): only `inForce` and `pending`
+   * are known, and the launcher can't send a commitment through it.
+   */
+  api: boolean
+}
+
+/** A commitment the client sent. */
+export interface CommitmentSent {
+  txId: string
+  /** 'uncertain' when the node's answer was lost: it may still confirm. */
+  outcome: string
+  diff: string
+  declaredHeight: number
+  servedFromHeight: number
+  inForceFromHeight: number
+  replaceableFromHeight: number
 }
 
 export type CommitmentReads = Partial<Record<Network, CommitmentRead>>
@@ -350,6 +426,13 @@ export interface LauncherApi {
   getClientStats(): Promise<ClientStats | null>
   /** Commitments the client has read this session, by network. */
   getCommitments(): Promise<CommitmentReads>
+  /** Has the running client read this network's commitment again; resolves once it has. */
+  refreshCommitment(network: Network): Promise<void>
+  /**
+   * Has the running client register this miner or change its commitment to `diff`, signed with the
+   * Lithos API key in the main process. The new commitment is then read again.
+   */
+  commit(network: Network, diff: string): Promise<CommitmentSent>
   getNodeSettings(network: Network): Promise<NodeSettings>
   /** Saves to ergo.conf. The node picks changes up on its next start. */
   setNodeSettings(network: Network, patch: NodeSettingsPatch): Promise<NodeSettings>
@@ -434,6 +517,8 @@ export const IPC = {
   setClientSettings: 'client:set-settings',
   getClientStats: 'client:get-stats',
   getCommitments: 'client:get-commitments',
+  refreshCommitment: 'client:refresh-commitment',
+  commit: 'client:commit',
   getNodeSettings: 'node:get-settings',
   setNodeSettings: 'node:set-settings',
   getSystemCheck: 'launcher:system-check',

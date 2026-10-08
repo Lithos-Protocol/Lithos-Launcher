@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { PICKS, blocksAsTime, diffFor, fmtConfigDiff, miningSeconds, parseHashrate } from '@shared/mining'
+  import { START_MEAN_NO_TABLE_GEN, blocksAsTime, diffFor, fmtConfigDiff, miningSeconds, parseHashrate } from '@shared/mining'
   import type { Network, SystemCheck, TaskId } from '@shared/types'
   import { fmtBytesGB, fmtMB } from './format'
   import Modal from './Modal.svelte'
@@ -24,7 +24,7 @@
   const stepNo = $derived(STEPS.indexOf(step) + 1)
   const hashrate = $derived(parseHashrate(hashrateText))
   const startDiff = $derived(
-    hashrate ? fmtConfigDiff(diffFor(hashrate, miningSeconds(ui.network), PICKS[0].mean)) : null
+    hashrate ? fmtConfigDiff(diffFor(hashrate, miningSeconds(ui.network), START_MEAN_NO_TABLE_GEN)) : null
   )
   const installed = $derived(
     Boolean(ui.net?.java.installed && ui.net?.node.installed && ui.net?.client.installed)

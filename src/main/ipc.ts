@@ -235,6 +235,8 @@ export function registerIpc(ctx: IpcContext): void {
   handle(IPC.setClientSettings, (n, patch) => updateClientSettings(ctx.root, asNetwork(n), asSettingsPatch(patch)))
   handle(IPC.getClientStats, () => ctx.client.stats)
   handle(IPC.getCommitments, () => ctx.client.commitments)
+  handle(IPC.refreshCommitment, (n) => ctx.client.refreshCommitment(asNetwork(n)))
+  handle(IPC.commit, (n, diff) => ctx.client.commit(asNetwork(n), asString(diff, 32)))
   handle(IPC.getNodeSettings, (n) => readNodeSettings(ctx.root, asNetwork(n)))
   handle(IPC.setNodeSettings, (n, patch) => updateNodeSettings(ctx.root, asNetwork(n), asNodeSettingsPatch(patch)))
   handle(IPC.getSystemCheck, (n) => systemCheck(ctx.root, asNetwork(n)))
@@ -391,7 +393,8 @@ export function registerIpc(ctx: IpcContext): void {
   handle(IPC.openLithosPanel, async () => {
     const port = ctx.client.httpPort
     if (port === null) throw new Error('The Lithos Client is not running')
-    await shell.openExternal(`http://127.0.0.1:${port}/`)
+    // localhost, as the client's own docs give it: the panel keeps its settings per address.
+    await shell.openExternal(`http://localhost:${port}/`)
   })
 
   handle(IPC.getWallet, () => ctx.wallet.state)

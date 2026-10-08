@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { NISP_COEFFICIENT, fmtConfigDiff, fmtHashrate, parseConfigDiff, windowSeconds } from '@shared/mining'
+  import { NISP_COEFFICIENT, START_MEAN_NO_TABLE_GEN, fmtConfigDiff, fmtHashrate, parseConfigDiff, windowSeconds } from '@shared/mining'
   import { DEFAULT_REDUCTION_MULTIPLIER } from '@shared/types'
   import Modal from './Modal.svelte'
   import { restartClient, saveClientSettings, ui } from './store.svelte'
@@ -16,8 +16,10 @@
   const multiplier = $derived(STEPS[pos])
   const diff = $derived(parseConfigDiff(ui.clientSettings?.diff))
   const measured = $derived(ui.clientStats?.hashesPerSecond ?? null)
-  // Without a measurement, assume the difficulty was chosen for averaging 15 super shares.
-  const hashrate = $derived(measured ?? (diff ? (diff * NISP_COEFFICIENT * 15) / windowSeconds(network) : null))
+  // Without a measurement, assume the difficulty was chosen for the recommended start.
+  const hashrate = $derived(
+    measured ?? (diff ? (diff * NISP_COEFFICIENT * START_MEAN_NO_TABLE_GEN) / windowSeconds(network) : null)
+  )
   const seconds = $derived(hashrate && diff ? (diff * multiplier) / hashrate : null)
   const clientRunning = $derived(ui.client.status === 'running' && ui.client.network === network)
 

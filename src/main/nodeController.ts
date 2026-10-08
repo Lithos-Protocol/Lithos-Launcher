@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { ERGO_DB_LABEL, ergoDb, type Network, type NodeInfo } from '@shared/types'
+import { ergoRetired } from '@shared/versions'
 import { chainDb, detectErgo } from './ergo'
 import { diagnose } from './diagnose'
 import { HELLO_HASH, HELLO_KEY, MANAGED_NODE_KEYS, readNodeSettings, writeNodeConf } from './ergoConf'
@@ -78,6 +79,8 @@ export class NodeController extends EventEmitter {
       if (!(await detectJre(this.root))) throw new Error('Java is not installed yet')
       const ergo = await detectErgo(layout.nodeDir(this.root, network), pinnedVersion(network, 'node'))
       if (!ergo) throw new Error('The Ergo node is not installed yet')
+      const retired = ergoRetired(ergo.version)
+      if (retired) throw new Error(`Ergo ${ergo.version} is retired: ${retired}. Switch it under Versions.`)
       await this.checkDatabase(network, ergo.version)
       const { apiPort: port } = await readNodeSettings(this.root, network)
       this.apiPort = port

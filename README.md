@@ -23,7 +23,9 @@ what to do next.
   node is ready and the wallet has caught up. A restored or imported wallet rescans the chain first; starting the
   client before that finishes asks whether to wait, since the client funds its bonds and fees from the wallet.
 - **Helps you mine:** picks a starting difficulty from your hashrate using the same formulas as the client's Difficulty
-  page, explains the on-chain commitment before you opt in, and shows connected rigs, hashrate and super shares.
+  page, explains the on-chain commitment and sends it when you choose (through the client's `/mining/commitment`
+  API, client 1.0.2 or later), and shows connected rigs, hashrate and super shares. Auto-commit, where the client
+  commits by itself, is an option in Settings.
   **Test mining**, next to Start client, mines at your chosen difficulty with `forceConfigDiff` and sends no
   transactions while you try difficulties out: it also sets `disableTransforms` and turns off emissions, DEX broadcasts,
   storage rent and extra block transactions. Restarts and "Start when ready" keep whichever mode the client last ran in.
@@ -31,6 +33,9 @@ what to do next.
 - **Keeps the node and client current:** the Setup card flags a newer release, and Versions switches either one to
   any release on GitHub (restarting it if it runs). For the node it offers both of Ergo's builds, LevelDB (6.0.x) and
   RocksDB (6.1.x), and keeps you on the one your synced chain was written with, since neither can read the other's.
+  Releases Lithos no longer supports (Ergo below 6.0.7 / 6.1.7, Lithos Client 1.0.0, 1.0.1 and the mainnet
+  prereleases) are retired: they aren't offered, and a setup still on one is asked to update (or, if nothing newer
+  replaces it, downgrade) before it starts. The list lives in `src/shared/versions.ts`.
 - **Imports an existing setup:** uses your synced chain and wallet where they are, so nothing re-syncs.
 - **Keeps mining in the background** from the system tray when you close the window.
 

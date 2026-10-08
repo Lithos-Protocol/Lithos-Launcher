@@ -1,11 +1,21 @@
-import { WINDOW_BLOCKS, parseConfigDiff, recommendedBalanceNanoErg } from '@shared/mining'
+import {
+  COMMIT_BINDS_BLOCKS,
+  COMMIT_REPLACE_BLOCKS,
+  COMMIT_SERVED_BLOCKS,
+  parseConfigDiff,
+  recommendedBalanceNanoErg
+} from '@shared/mining'
 import { syncView } from '@shared/sync'
 import type {
   ApiKeyName,
   ClientSettings,
   ClientSettingsPatch,
   ClientStats,
+  CommitmentBlock,
+  CommitmentInFlight,
   CommitmentReads,
+  CommitmentSent,
+  CommitmentState,
   Network,
   NetworkState,
   NodeInfo,
@@ -401,7 +411,11 @@ export function clientRequirements(): Requirement[] {
   const unlocked = ui.wallet.phase === 'unlocked' && ui.wallet.network === ui.network
   const scan = walletScan()
   return [
-    { label: 'Client installed', ok: ui.net?.client.installed ?? false, note: '' },
+    {
+      label: 'Client installed',
+      ok: (ui.net?.client.installed ?? false) && !ui.net?.client.retired,
+      note: ui.net?.client.retired ? 'version retired' : ''
+    },
     { label: 'Node running', ok: nodeUp, note: '' },
     {
       label: 'Node synced',
@@ -433,14 +447,29 @@ export interface ChainCommitment {
   height: number | null
   /** Blocks until `pending` takes effect, when the height is known. */
   blocksLeft: number | null
-  /** The height `pending` declares, a window before it takes effect: from here rigs build super shares for it. */
+  /** The height `pending` declares: super shares count toward it from here. */
   declaredHeight: number | null
-  /** Blocks until the declared height, when the height is known; 0 once it's reached. */
-  blocksToDeclared: number | null
+  /** The first block the stratum mines at `pending`: rigs should start (or switch) here. */
+  servedHeight: number | null
+  /** Blocks until `servedHeight`, when the height is known; 0 once it's reached. */
+  blocksToServed: number | null
   /** Nothing is in effect yet and the first commitment is still waiting. */
   waiting: boolean
-  /** Waiting, and the declared height isn't known to be reached: mining now isn't paid. */
+  /** Waiting, and the served height isn't known to be reached: mining now isn't paid. */
   early: boolean
+  /** A registration or change that was sent and hasn't confirmed or been synced yet. */
+  inFlight: CommitmentInFlight | null
+  state: CommitmentState
+  /** What the client is waiting on, when it says. */
+  reason: string | null
+  /** Whether the client would send a commitment now (as of its last read). */
+  canCommit: boolean
+  blockedReason: CommitmentBlock | null
+  /** The first height the newest commitment can be replaced at. */
+  replaceableFromHeight: number | null
+  blocksToReplaceable: number | null
+  /** Read through the client's commitment API; false for an older client, which can't commit from here. */
+  api: boolean
   /** Read by the client running now, rather than remembered from an earlier run this session. */
   live: boolean
   /** The height the client read it at, when it says. */
@@ -452,32 +481,68 @@ export function chainCommitment(): ChainCommitment | null {
   const network = ui.network
   const read = ui.commitments[network]
   if (!read) return null
-  const reported = read.committed ? Number(read.committed) : null
-  const newest = read.pending ? Number(read.pending) : null
   // Both heights are polled anyway, so the newer of the two costs no extra node calls.
   const nodeHeight = ui.node.status === 'running' && ui.node.network === network ? ui.info?.fullHeight : null
-  const height = Math.max(read.checkedHeight ?? 0, nodeHeight ?? 0) || null
-  const from = read.pendingFromHeight
-  const ahead = newest !== null && from !== null && (height === null || height < from)
+  const height = Math.max(read.height ?? 0, nodeHeight ?? 0) || null
+  const p = read.pending
+  const from = p?.inForceFromHeight ?? null
+  const ahead = p !== null && (from === null || height === null || height < from)
+  const reported = read.inForce ? Number(read.inForce.score) : null
+  const newest = p ? Number(p.score) : null
   const pending = ahead ? newest : null
-  // Past its height the pending one is in effect, even before the client reads the list again.
+  // Past its height the pending one is in effect, even before the client reads it again.
   const committed = ahead ? reported : (newest ?? reported)
-  const declared = ahead ? from! - WINDOW_BLOCKS : null
-  const blocksToDeclared = declared !== null && height !== null ? Math.max(0, declared - height) : null
+  const served = ahead ? (p!.servedFromHeight ?? p!.declaredHeight) : null
+  const blocksToServed = served !== null && height !== null ? Math.max(0, served - height) : null
   const waiting = ahead && committed === null
+  const replaceable = read.replaceableFromHeight
   return {
     committed,
     pending,
     fromHeight: ahead ? from : null,
     latest: pending ?? committed,
     height,
-    blocksLeft: ahead && height !== null ? from! - height : null,
-    declaredHeight: declared,
-    blocksToDeclared,
+    blocksLeft: ahead && from !== null && height !== null ? from - height : null,
+    declaredHeight: ahead ? p!.declaredHeight : null,
+    servedHeight: served,
+    blocksToServed,
     waiting,
-    early: waiting && (blocksToDeclared === null || blocksToDeclared > 0),
+    early: waiting && (blocksToServed === null || blocksToServed > 0),
+    inFlight: read.inFlight,
+    state: read.state,
+    reason: read.reason,
+    canCommit: read.canCommit,
+    blockedReason: read.blockedReason,
+    replaceableFromHeight: replaceable,
+    blocksToReplaceable: replaceable !== null && height !== null ? Math.max(0, replaceable - height) : null,
+    api: read.api,
     live: ui.client.status === 'running' && ui.client.network === network,
-    readAt: read.checkedHeight
+    readAt: read.height
+  }
+}
+
+/** Blocks from sending a commitment until each step, as the client reports them (or the launcher's defaults). */
+export function commitTiming(): { served: number; inForce: number; replaceable: number } {
+  const t = ui.commitments[ui.network]?.timing
+  return {
+    served: t?.servedAfterBlocks ?? COMMIT_SERVED_BLOCKS,
+    inForce: t?.inForceAfterBlocks ?? COMMIT_BINDS_BLOCKS,
+    replaceable: t?.replaceableAfterBlocks ?? COMMIT_REPLACE_BLOCKS
+  }
+}
+
+/** Has the running client read the commitment again. Quiet on failure: the last read stays. */
+export async function refreshCommitment(): Promise<void> {
+  if (ui.client.status !== 'running' || ui.client.network !== ui.network) return
+  await api.refreshCommitment(ui.network).catch(() => undefined)
+}
+
+/** Sends a commitment of `diff` through the running client. */
+export async function commit(diff: string): Promise<{ sent: CommitmentSent } | { error: string }> {
+  try {
+    return { sent: await api.commit(ui.network, diff) }
+  } catch (err) {
+    return { error: errorText(err) }
   }
 }
 

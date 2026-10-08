@@ -16,5 +16,6 @@
     "noEmit": true,
     "paths": { "@shared/*": ["./src/shared/*"] }
   },
-  "include": ["src/renderer/src/**/*", "src/renderer/src/**/*.svelte", "src/shared/**/*"]
+  "include": ["src/renderer/src/**/*", "src/renderer/src/**/*.svelte", "src/shared/**/*"],
+  "exclude": ["src/**/*.test.ts"]
 }

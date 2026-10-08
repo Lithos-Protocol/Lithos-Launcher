@@ -39,6 +39,7 @@
   const allInstalled = $derived(steps.every((s) => s.installed))
   const nodeUpdate = $derived(ui.releases.node?.update ?? null)
   const clientUpdate = $derived(ui.releases.client?.update ?? null)
+  const retired = $derived(Boolean(ui.net?.node.retired || ui.net?.client.retired))
   // Once everything is in place the card shrinks to one line to make room for the node and wallet.
   const compact = $derived(allInstalled && !ui.installing && !ui.setupError)
 
@@ -65,9 +66,13 @@
         class="btn small"
         onclick={() => (ui.dialog = 'versions')}
         disabled={!ui.net}
-        title={nodeUpdate || clientUpdate ? 'An update is available' : 'Pick the node and client versions'}
+        title={retired
+          ? 'A version in use is retired'
+          : nodeUpdate || clientUpdate
+            ? 'An update is available'
+            : 'Pick the node and client versions'}
       >
-        Versions{#if nodeUpdate || clientUpdate}<span class="dot" aria-label="Update available"></span>{/if}
+        Versions{#if retired || nodeUpdate || clientUpdate}<span class="dot" aria-label="Update available"></span>{/if}
       </button>
       <button class="btn small" onclick={openFolder} title={ui.net?.folder}>Open folder ↗</button>
     </div>
@@ -76,16 +81,24 @@
   {#if compact}
     <div class="ready" role="status">
       <span class="tick" aria-hidden="true">✓</span>
-      <span class="ready-title">Everything installed</span>
+      <span class="ready-title">{retired ? 'Installed, update needed' : 'Everything installed'}</span>
       <div class="versions">
         <span class="chip"><span class="micro">Java</span><span class="num">{ui.net?.java.version}</span></span>
         <span class="chip">
           <span class="micro">Ergo</span><span class="num">{ui.net?.node.version}</span>
-          {#if nodeUpdate}<span class="up" title="Ergo {nodeUpdate} is available">↑ {nodeUpdate}</span>{/if}
+          {#if ui.net?.node.retired}
+            <span class="up">retired</span>
+          {:else if nodeUpdate}
+            <span class="up" title="Ergo {nodeUpdate} is available">↑ {nodeUpdate}</span>
+          {/if}
         </span>
         <span class="chip">
           <span class="micro">Lithos</span><span class="num">{ui.net?.client.version}</span>
-          {#if clientUpdate}<span class="up" title="Lithos Client {clientUpdate} is available">↑ {clientUpdate}</span>{/if}
+          {#if ui.net?.client.retired}
+            <span class="up">retired</span>
+          {:else if clientUpdate}
+            <span class="up" title="Lithos Client {clientUpdate} is available">↑ {clientUpdate}</span>
+          {/if}
         </span>
       </div>
     </div>

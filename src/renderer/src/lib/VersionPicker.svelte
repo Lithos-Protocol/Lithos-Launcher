@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ERGO_DB_LABEL, type ErgoDb, type ProcId, type ReleaseInfo, type ReleaseList } from '@shared/types'
+  import { compareLoose } from '@shared/versions'
   import { fmtMB } from './format'
   import ProgressBar from './ProgressBar.svelte'
   import { ui, useVersion } from './store.svelte'
@@ -32,13 +33,20 @@
     picked !== null && list.releases.some((r) => r.version === picked)
       ? picked
       : (list.update ??
-          (mismatch ? null : list.active) ??
+          list.replacement ??
+          (mismatch || list.retired ? null : list.active) ??
           list.releases.find((r) => !blocked(r))?.version ??
           '')
   )
   const release = $derived(list.releases.find((r) => r.version === selected) ?? null)
   const indexOf = (version: string | null): number => list.releases.findIndex((r) => r.version === version)
-  const older = $derived(list.active !== null && indexOf(list.active) !== -1 && indexOf(selected) > indexOf(list.active))
+  // A retired version isn't listed, so it is compared by number.
+  const older = $derived(
+    list.active !== null &&
+      (indexOf(list.active) !== -1
+        ? indexOf(selected) > indexOf(list.active)
+        : selected !== '' && compareLoose(selected, list.active) < 0)
+  )
   const canSwitch = $derived(
     release !== null && selected !== list.active && !blocked(release) && ui.switching === null && !ui.installing
   )
@@ -113,10 +121,18 @@
     <span class="chip"><span class="micro">In use</span><span class="num">{list.active ?? 'Not installed'}</span></span>
     {#if list.update}
       <span class="update">Update available: {list.update}</span>
-    {:else if list.active && !mismatch}
+    {:else if list.active && !mismatch && !list.retired}
       <span class="current">Up to date</span>
     {/if}
   </div>
+
+  {#if list.retired}
+    <p class="warn-note">
+      {list.active} is retired and won't start: {list.retired}.{list.replacement
+        ? ` Switch to ${list.replacement} below.`
+        : ' No release to switch to was found.'}
+    </p>
+  {/if}
 
   {#if id === 'node'}
     {#if list.dataDb && mismatch}

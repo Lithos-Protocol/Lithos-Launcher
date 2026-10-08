@@ -1,8 +1,11 @@
 import { randomBytes } from 'node:crypto'
 import { hostname } from 'node:os'
+import { WINDOW_BLOCKS } from '@shared/mining'
 import { syncView } from '@shared/sync'
-import type { ClientStats, CommitmentRead, CommitmentReads, Network, WalletState } from '@shared/types'
+import type { ClientStats, CommitmentRead, CommitmentReads, CommitmentSent, Network, WalletState } from '@shared/types'
+import { clientRetired } from '@shared/versions'
 import { CLIENT_ENV, managedClientKeys, readClientSettings, TEST_MODE_LINES, writeClientConf } from './clientConf'
+import { commitError, commitmentOf, legacyCommitmentOf, sentOf } from './commitment'
 import { diagnose } from './diagnose'
 import { interrupt } from './interrupt'
 import { detectJre } from './java'
@@ -24,6 +27,16 @@ const STATS_POLL_MS = 10_000
 /** Thrown inside a start flow that a later start/stop superseded. */
 class Cancelled extends Error {}
 
+/** The client waits up to a minute for its transaction engine to send a commitment. */
+const COMMIT_TIMEOUT_MS = 90_000
+const COMMIT_READ_TIMEOUT_MS = 30_000
+/**
+ * How often a commitment that is still settling is read again, between blocks. Right after the
+ * client starts, its sync reports "not ready" until it commits a block, which a once-per-block read
+ * would show for a whole block or more.
+ */
+const COMMIT_SETTLING_MS = 30_000
+
 const num = (v: unknown): number | null =>
   typeof v === 'number' ? v : typeof v === 'string' && v !== '' && !isNaN(Number(v)) ? Number(v) : null
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : null)
@@ -41,6 +54,12 @@ export class ClientController {
   private reads: CommitmentReads = {}
   /** The wallet address each read belongs to, so another wallet on that network drops it. */
   private readers: Partial<Record<Network, string | null>> = {}
+  /** Whether the running client has `/mining/commitment`; null until it has been asked. */
+  private commitApi: boolean | null = null
+  /** The node height the commitment was last read at, so it is read again once per block. */
+  private commitReadHeight: number | null | undefined = undefined
+  private commitReadAt = 0
+  private commitReading: Promise<void> | null = null
 
   constructor(
     private readonly root: string,
@@ -85,6 +104,8 @@ export class ClientController {
       if (!(await detectJre(this.root))) throw new Error('Java is not installed yet')
       const client = await detectClient(layout.clientDir(this.root, network), pinnedVersion(network, 'client'))
       if (!client) throw new Error('The Lithos Client is not installed yet')
+      const retired = clientRetired(client.version)
+      if (retired) throw new Error(`Lithos Client ${client.version} is retired: ${retired}. Switch it under Versions.`)
       const conn = this.node.connection()
       if (!conn || conn.network !== network) throw new Error(`Start the ${network} node first`)
       const info = this.node.info
@@ -186,8 +207,9 @@ export class ClientController {
           ? `Test mining at ${settings.diff}: transforms, emissions, broadcasts and block transactions are off, so no transactions are sent`
           : settings.autoCommit
             ? `Difficulty ${settings.diff}, auto-commit on`
-            : `Difficulty ${settings.diff}, auto-commit off: nothing new is committed, so only a commitment already on chain is used`
+            : `Difficulty ${settings.diff}, auto-commit off: commitments are sent from the launcher's Commit dialog`
       )
+      this.commitApi = null
       this.startStats(ports.http, network)
     } catch (err) {
       if (err instanceof Cancelled || gen !== this.generation) {
@@ -305,21 +327,116 @@ export class ClientController {
         }
         this.emitStats(this.lastStats)
       }
-      if (diff) this.remember(network, diff)
+      if (this.commitApi === false) {
+        // An older client: its stats carry the commitment for free.
+        const read = diff ? legacyCommitmentOf(diff, WINDOW_BLOCKS) : null
+        if (read) this.remember(network, read)
+      } else if (this.commitReadDue(network)) {
+        void this.readCommitment(network)
+      }
       if (token === this.statsToken) setTimeout(tick, STATS_POLL_MS)
     }
+    this.commitReadHeight = undefined
     void tick()
   }
 
-  private remember(network: Network, diff: Record<string, unknown>): void {
-    const read: CommitmentRead = {
-      committed: str(diff.committed),
-      pending: str(diff.pending),
-      pendingFromHeight: num(diff.pendingFromHeight),
-      checkedHeight: num(diff.checkedHeight)
+  /**
+   * Each read costs the client node calls, and a settled commitment only moves with the chain, so
+   * it is read once per block. One still settling (the client syncing, a send confirming) is read
+   * every COMMIT_SETTLING_MS too.
+   */
+  private commitReadDue(network: Network): boolean {
+    if ((this.node.info?.fullHeight ?? null) !== this.commitReadHeight) return true
+    const read = this.reads[network]
+    const settling =
+      !read ||
+      read.state === 'unknown' ||
+      read.state === 'registering' ||
+      read.blockedReason === 'SYNCING' ||
+      read.blockedReason === 'UNAVAILABLE' ||
+      read.blockedReason === 'IN_FLIGHT'
+    return settling && Date.now() - this.commitReadAt >= COMMIT_SETTLING_MS
+  }
+
+  /** Reads `GET /mining/commitment` from the running client; concurrent calls share one read. */
+  private readCommitment(network: Network): Promise<void> {
+    if (this.commitReading) return this.commitReading
+    const port = this.runningNetwork === network ? this.httpPort : null
+    if (port === null) return Promise.resolve()
+    this.commitReadHeight = this.node.info?.fullHeight ?? null
+    this.commitReadAt = Date.now()
+    const reading = (async () => {
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/mining/commitment`, {
+          signal: AbortSignal.timeout(COMMIT_READ_TIMEOUT_MS)
+        })
+        if (res.status === 404) {
+          this.commitApi = false
+          return
+        }
+        // Anything else that isn't a status (the client still starting, say) keeps the last read.
+        const read = res.ok ? commitmentOf(await res.json()) : null
+        if (!read) return
+        this.commitApi = true
+        // A chain the client couldn't read says nothing about the commitment read before.
+        if (read.blockedReason === 'UNAVAILABLE' && this.reads[network]) return
+        this.remember(network, read)
+      } catch {
+        // Not answering yet: no node calls were made, so the next stats poll tries again.
+        this.commitReadHeight = undefined
+      }
+    })()
+    this.commitReading = reading.finally(() => {
+      if (this.commitReading === reading) this.commitReading = null
+    })
+    return this.commitReading
+  }
+
+  /** Reads the running client's commitment again, now. */
+  async refreshCommitment(network: Network): Promise<void> {
+    if (this.commitApi === false) return
+    await this.commitReading
+    await this.readCommitment(network)
+  }
+
+  /** Registers this miner with `diff`, or changes its commitment to it, through the running client. */
+  async commit(network: Network, diff: string): Promise<CommitmentSent> {
+    const port = this.runningNetwork === network && this.proc.state.status === 'running' ? this.httpPort : null
+    if (port === null) throw new Error(`Start the ${network} Lithos Client first`)
+    if (this.commitApi === false) {
+      throw new Error('This Lithos Client version has no commitment API. Update it under Versions to commit from here.')
     }
-    // Nothing at all means the client couldn't read the list yet, not that there is no commitment.
-    if (read.committed === null && read.pending === null && read.checkedHeight === null) return
+    const key = this.vault.getLithosKey(network)
+    if (!key) throw new Error('The Lithos API key is missing. Restart the client to make one.')
+    let res: Response
+    try {
+      res = await fetch(`http://127.0.0.1:${port}/mining/commitment`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', api_key: key.key },
+        body: JSON.stringify({ diff }),
+        signal: AbortSignal.timeout(COMMIT_TIMEOUT_MS)
+      })
+    } catch {
+      await this.refreshCommitment(network)
+      throw new Error("The Lithos Client didn't answer in time and may still send it. Check your commitment again before retrying.")
+    }
+    const body: unknown = await res.json().catch(() => null)
+    // Sent or not, what the chain holds may have moved.
+    await this.refreshCommitment(network)
+    if (!res.ok) {
+      const message = commitError(res.status, body)
+      this.proc.log(`Commitment of ${diff} not sent: ${message}`)
+      throw new Error(message)
+    }
+    const sent = sentOf(body, diff)
+    this.proc.log(
+      `Sent ${sent.kind === 'registration' ? 'registration with commitment' : 'commitment'} ${sent.diff} as ` +
+        `${sent.txId} (${sent.outcome}). In force from block ${sent.inForceFromHeight}.`
+    )
+    return sent
+  }
+
+  private remember(network: Network, read: CommitmentRead): void {
     const w = this.wallet.state
     this.readers[network] = (w.network === network ? w.address : null) ?? this.readers[network] ?? null
     if (JSON.stringify(this.reads[network]) === JSON.stringify(read)) return

@@ -2,19 +2,10 @@ import type { Dirent } from 'node:fs'
 import { mkdir, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ergoDb, type ErgoDb, type TaskProgress } from '@shared/types'
+import { compareVersions, ergoRetired } from '@shared/versions'
 import { download, getJson } from './net'
-import { compareVersions } from './util'
 
-/** Oldest node with the API calls the Lithos Client needs (Lithos-Client/TestnetNode.md). */
-const MIN_VERSION = '6.0.6'
 const JAR_RE = /^ergo-(\d+\.\d+\.\d+)\.jar$/
-
-/** A RocksDB build is its LevelDB twin with minor 1 (6.1.6 is 6.0.6), so both meet the minimum together. */
-function meetsMinimum(version: string): boolean {
-  const [major, , patch] = version.split('.')
-  const twin = ergoDb(version) === 'rocksdb' ? `${major}.0.${patch}` : version
-  return compareVersions(twin, MIN_VERSION) >= 0
-}
 
 interface GhAsset {
   name: string
@@ -43,9 +34,9 @@ export interface ErgoRelease {
 }
 
 /**
- * Every Ergo release the launcher can install, newest first: a plain node jar at or above
- * MIN_VERSION (or its RocksDB twin) with a published checksum, since without one the download
- * can't be verified. Release candidates are left out.
+ * Every Ergo release the launcher can install, newest first: a plain node jar Lithos supports (see
+ * ergoRetired) with a published checksum, since without one the download can't be verified.
+ * Release candidates are left out.
  */
 export async function listErgoReleases(): Promise<ErgoRelease[]> {
   const releases = await getJson<GhRelease[]>('https://api.github.com/repos/ergoplatform/ergo/releases?per_page=50')
@@ -54,7 +45,7 @@ export async function listErgoReleases(): Promise<ErgoRelease[]> {
     if (release.draft || /rc\d*$/i.test(release.tag_name)) continue
     for (const asset of release.assets) {
       const version = JAR_RE.exec(asset.name)?.[1]
-      if (!version || !meetsMinimum(version) || found.has(version)) continue
+      if (!version || ergoRetired(version) || found.has(version)) continue
       if (!asset.digest?.startsWith('sha256:')) continue
       found.set(version, {
         version,
@@ -136,13 +127,21 @@ export async function installedErgo(nodeDir: string): Promise<{ version: string;
     .sort((a, b) => compareVersions(b.version, a.version))
 }
 
-/** The node jar to run: the version picked under Versions if it is installed, else the newest. */
+/**
+ * The node jar to run: the version picked under Versions if it is installed, else the newest one
+ * not retired, else the newest.
+ */
 export async function detectErgo(
   nodeDir: string,
   pinned: string | null = null
 ): Promise<{ version: string; jar: string } | null> {
   const installed = await installedErgo(nodeDir)
-  return installed.find((i) => i.version === pinned) ?? installed[0] ?? null
+  return (
+    installed.find((i) => i.version === pinned) ??
+    installed.find((i) => !ergoRetired(i.version)) ??
+    installed[0] ??
+    null
+  )
 }
 
 export async function installErgo(
