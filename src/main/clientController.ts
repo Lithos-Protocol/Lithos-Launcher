@@ -7,6 +7,7 @@ import { clientRetired } from '@shared/versions'
 import { CLIENT_ENV, managedClientKeys, readClientSettings, TEST_MODE_LINES, writeClientConf } from './clientConf'
 import { commitError, commitmentOf, legacyCommitmentOf, sentOf } from './commitment'
 import { diagnose } from './diagnose'
+import { singleFlight } from './singleFlight'
 import { interrupt } from './interrupt'
 import { detectJre } from './java'
 import { heapPlan, javaEnv, layout } from './layout'
@@ -59,7 +60,8 @@ export class ClientController {
   /** The node height the commitment was last read at, so it is read again once per block. */
   private commitReadHeight: number | null | undefined = undefined
   private commitReadAt = 0
-  private commitReading: Promise<void> | null = null
+  /** Reads `GET /mining/commitment` from the running client; concurrent calls share one read. */
+  private readonly readCommitment = singleFlight(() => this.fetchCommitment())
 
   constructor(
     private readonly root: string,
@@ -332,7 +334,7 @@ export class ClientController {
         const read = diff ? legacyCommitmentOf(diff, WINDOW_BLOCKS) : null
         if (read) this.remember(network, read)
       } else if (this.commitReadDue(network)) {
-        void this.readCommitment(network)
+        void this.readCommitment()
       }
       if (token === this.statsToken) setTimeout(tick, STATS_POLL_MS)
     }
@@ -358,45 +360,37 @@ export class ClientController {
     return settling && Date.now() - this.commitReadAt >= COMMIT_SETTLING_MS
   }
 
-  /** Reads `GET /mining/commitment` from the running client; concurrent calls share one read. */
-  private readCommitment(network: Network): Promise<void> {
-    if (this.commitReading) return this.commitReading
-    const port = this.runningNetwork === network ? this.httpPort : null
-    if (port === null) return Promise.resolve()
+  private async fetchCommitment(): Promise<void> {
+    const network = this.runningNetwork
+    const port = this.httpPort
+    if (network === null || port === null) return
     this.commitReadHeight = this.node.info?.fullHeight ?? null
     this.commitReadAt = Date.now()
-    const reading = (async () => {
-      try {
-        const res = await fetch(`http://127.0.0.1:${port}/mining/commitment`, {
-          signal: AbortSignal.timeout(COMMIT_READ_TIMEOUT_MS)
-        })
-        if (res.status === 404) {
-          this.commitApi = false
-          return
-        }
-        // Anything else that isn't a status (the client still starting, say) keeps the last read.
-        const read = res.ok ? commitmentOf(await res.json()) : null
-        if (!read) return
-        this.commitApi = true
-        // A chain the client couldn't read says nothing about the commitment read before.
-        if (read.blockedReason === 'UNAVAILABLE' && this.reads[network]) return
-        this.remember(network, read)
-      } catch {
-        // Not answering yet: no node calls were made, so the next stats poll tries again.
-        this.commitReadHeight = undefined
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/mining/commitment`, {
+        signal: AbortSignal.timeout(COMMIT_READ_TIMEOUT_MS)
+      })
+      if (res.status === 404) {
+        this.commitApi = false
+        return
       }
-    })()
-    this.commitReading = reading.finally(() => {
-      if (this.commitReading === reading) this.commitReading = null
-    })
-    return this.commitReading
+      // Anything else that isn't a status (the client still starting, say) keeps the last read.
+      const read = res.ok ? commitmentOf(await res.json()) : null
+      if (!read) return
+      this.commitApi = true
+      // A chain the client couldn't read says nothing about the commitment read before.
+      if (read.blockedReason === 'UNAVAILABLE' && this.reads[network]) return
+      this.remember(network, read)
+    } catch {
+      // Not answering yet: no node calls were made, so the next stats poll tries again.
+      this.commitReadHeight = undefined
+    }
   }
 
   /** Reads the running client's commitment again, now. */
   async refreshCommitment(network: Network): Promise<void> {
-    if (this.commitApi === false) return
-    await this.commitReading
-    await this.readCommitment(network)
+    if (this.commitApi === false || this.runningNetwork !== network) return
+    await this.readCommitment.fresh()
   }
 
   /** Registers this miner with `diff`, or changes its commitment to it, through the running client. */
@@ -439,7 +433,12 @@ export class ClientController {
   private remember(network: Network, read: CommitmentRead): void {
     const w = this.wallet.state
     this.readers[network] = (w.network === network ? w.address : null) ?? this.readers[network] ?? null
-    if (JSON.stringify(this.reads[network]) === JSON.stringify(read)) return
+    const before = this.reads[network]
+    if (JSON.stringify(before) === JSON.stringify(read)) return
+    if (read.api && (before?.state !== read.state || before?.blockedReason !== read.blockedReason)) {
+      const blocked = read.blockedReason ? `, can't commit yet (${read.blockedReason.toLowerCase().replace('_', ' ')})` : ''
+      this.proc.log(`Commitment status: ${read.state}${blocked}${read.reason ? `: ${read.reason}` : ''}`)
+    }
     this.reads = { ...this.reads, [network]: read }
     this.emitCommitments(this.reads)
   }
