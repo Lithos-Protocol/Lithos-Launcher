@@ -27,7 +27,7 @@
   let tableMsText = $state('')
   let customText = $state('')
   let advanced = $state(false)
-  let chosenMean = $state<number>(PICKS[0].mean)
+  let chosen = $state<(typeof PICKS)[number]['label']>('Start')
   let busy = $state(false)
   let error = $state<string | null>(null)
 
@@ -47,7 +47,7 @@
 
   const custom = $derived(customText.trim().toUpperCase())
   const customOk = $derived(custom === '' || CONFIG_DIFF_RE.test(custom))
-  const selected = $derived(custom !== '' ? custom : (picks.find((p) => p.mean === chosenMean)?.diff ?? null))
+  const selected = $derived(custom !== '' ? custom : (picks.find((p) => p.label === chosen)?.diff ?? null))
   const selectedValue = $derived(parseConfigDiff(selected))
   const selectedMean = $derived(hashrate && selectedValue ? meanFor(hashrate, seconds, selectedValue) : null)
 
@@ -95,7 +95,8 @@
         {#if autoCommit}
           Auto-commit sends your new difficulty once that lock ends.
         {:else}
-          Auto-commit is off, so your new difficulty won't be committed at all, and only
+          Until you commit your new difficulty once that lock ends{#if chain.replaceableFromHeight}
+            (block <b class="mono">{chain.replaceableFromHeight}</b>){/if}, only
           <b class="mono">{fmtConfigDiff(chain.pending)}</b> is used.
         {/if}
       </p>
@@ -123,26 +124,27 @@
         {:else if hashrateText.trim()}
           Add a unit: 150 MH/s, 150M or 1.2 GH/s
         {:else}
-          Use the rate your miner sustains, not its best peak.
+          Use the rate your miner sustains, not its best peak. If using reported hashrate, let it settle after ~10
+          minutes of mining.
         {/if}
       </span>
     </div>
 
     <div class="picks" role="radiogroup" aria-label="Difficulty options">
-      {#each picks as p (p.mean)}
+      {#each picks as p (p.label)}
         <button
           type="button"
           role="radio"
-          aria-checked={custom === '' && chosenMean === p.mean}
+          aria-checked={custom === '' && chosen === p.label}
           class="pick"
-          class:on={custom === '' && chosenMean === p.mean}
-          class:start={p.mean === 15}
+          class:on={custom === '' && chosen === p.label}
+          class:start={p.label === 'Start'}
           onclick={() => {
-            chosenMean = p.mean
+            chosen = p.label
             customText = ''
           }}
         >
-          <span class="micro">{p.label}{p.mean === 15 ? ' · recommended' : ''}</span>
+          <span class="micro">{p.label}{p.label === 'Start' ? ' · recommended' : ''}</span>
           <span class="diff">{p.diff ?? '—'}</span>
           <span class="meta">Averages {p.mean} super shares · paid in {Math.round(p.chance * 100)}% of windows</span>
           <span class="meta dim">{p.note}</span>
@@ -208,7 +210,7 @@
           until auto-commit sends the change, which the contracts allow {blocksAsTime(COMMIT_REPLACE_BLOCKS, network)}
           after the last one.
         {:else}
-          and only it is used: auto-commit is off, so your new difficulty won't be committed.
+          and only it is used until you commit the new one with Commit… on the Lithos Client card.
         {/if}
       </p>
     {/if}

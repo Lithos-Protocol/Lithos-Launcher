@@ -1,6 +1,7 @@
 <script lang="ts">
   import { syncView, type SyncStage } from '@shared/sync'
   import type { ProcStatus } from '@shared/types'
+  import RetiredNotice from './RetiredNotice.svelte'
   import Ring from './Ring.svelte'
   import StatusDot from './StatusDot.svelte'
   import SyncPanel from './SyncPanel.svelte'
@@ -91,6 +92,10 @@
     {/if}
   </div>
 
+  {#if !active && ui.net?.node.retired}
+    <div class="retired-wrap"><RetiredNotice id="node" /></div>
+  {/if}
+
   <SyncPanel />
 
   {#if status === 'running'}
@@ -107,7 +112,7 @@
         {status === 'stopping' ? 'Stopping…' : 'Stop node'}
       </button>
     {:else}
-      <button class="btn primary" onclick={startNode} disabled={!installed}>Start node</button>
+      <button class="btn primary" onclick={startNode} disabled={!installed || !!ui.net?.node.retired}>Start node</button>
     {/if}
     <button class="btn" onclick={openNodePanel} disabled={status !== 'running'}>Node panel ↗</button>
   </div>
@@ -177,5 +182,12 @@
 
   .node-error {
     margin: 0 20px 20px;
+  }
+
+  .retired-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 20px 14px;
   }
 </style>

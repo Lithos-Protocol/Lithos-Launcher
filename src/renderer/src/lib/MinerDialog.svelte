@@ -53,8 +53,7 @@
         <button class="link micro" onclick={() => window.lithos.openLink('soat')}>GitHub ↗</button>
       </div>
       <p class="note">
-        Open source, no dev fee, built-in Lithos support. Start it with the <code class="mono">--lithos</code> option, or
-        run the included <code class="mono">mine_ergo_lithos</code> script, which sets everything up for you.
+        Open source, no dev fee, built-in Lithos support. Start it with the <code class="mono">--lithos</code> option.
       </p>
     </section>
 

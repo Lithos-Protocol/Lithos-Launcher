@@ -1,9 +1,10 @@
 import { access, mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { Network, TaskProgress } from '@shared/types'
+import { clientRetired, compareLoose } from '@shared/versions'
 import { extractZip } from './extract'
 import { download, getJson } from './net'
-import { compareVersions, renameWithRetry } from './util'
+import { renameWithRetry } from './util'
 
 const RELEASES_URL = 'https://api.github.com/repos/Lithos-Protocol/Lithos-Client/releases?per_page=50'
 const ZIP_RE = /^lithos-client-.+\.zip$/
@@ -46,20 +47,14 @@ function onTrack(network: Network, tag: string): boolean {
   return tag.endsWith('-test') === (network === 'testnet')
 }
 
-/** Orders "5.6.0-test" / "1.1.0-prerelease" style versions by their numeric part. */
-function compareLoose(a: string, b: string): number {
-  const num = (v: string): string => /^\d+(?:\.\d+)*/.exec(v)?.[0] ?? '0'
-  return compareVersions(num(a), num(b))
-}
-
 /**
  * Every release on this network's track with a client zip and a published checksum (without one
- * the download can't be verified), newest first.
+ * the download can't be verified), newest first. Retired releases are left out.
  */
 export async function listClientReleases(network: Network): Promise<ClientRelease[]> {
   const releases = await getJson<GhRelease[]>(RELEASES_URL)
   return releases
-    .filter((r) => !r.draft && onTrack(network, r.tag_name))
+    .filter((r) => !r.draft && onTrack(network, r.tag_name) && !clientRetired(r.tag_name.replace(/^v/, '')))
     .sort((a, b) => b.published_at.localeCompare(a.published_at))
     .flatMap((release) => {
       const asset = release.assets.find((a) => ZIP_RE.test(a.name))
@@ -114,10 +109,15 @@ export async function installedClients(clientDir: string): Promise<InstalledClie
   return found.sort((a, b) => compareLoose(b.version, a.version))
 }
 
-/** The release to run: the version picked under Versions if it is installed, else the newest. */
+/** The release to run: the version picked under Versions if it is installed, else the newest one not retired, else the newest. */
 export async function detectClient(clientDir: string, pinned: string | null = null): Promise<InstalledClient | null> {
   const installed = await installedClients(clientDir)
-  return installed.find((c) => c.version === pinned) ?? installed[0] ?? null
+  return (
+    installed.find((c) => c.version === pinned) ??
+    installed.find((c) => !clientRetired(c.version)) ??
+    installed[0] ??
+    null
+  )
 }
 
 export async function installClient(

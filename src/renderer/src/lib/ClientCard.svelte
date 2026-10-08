@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { blocksAsWait, fmtConfigDiff, fmtHashrate, parseConfigDiff, sameDiff } from '@shared/mining'
+  import { blocksAsTime, blocksAsWait, fmtConfigDiff, fmtHashrate, parseConfigDiff, sameDiff } from '@shared/mining'
   import { DEFAULT_REDUCTION_MULTIPLIER, type ProcStatus } from '@shared/types'
+  import RetiredNotice from './RetiredNotice.svelte'
   import StatusDot from './StatusDot.svelte'
   import {
     chainCommitment,
     clientRequirements,
+    commitTiming,
     copyApiKey,
     copyText,
     openLithosPanel,
@@ -55,18 +57,22 @@
         ok: true
       }
     }
+    const sent = chain?.inFlight ? fmtConfigDiff(Number(chain.inFlight.commitment.score)) : null
+    if (chain?.committed && sent) return { value: fmtConfigDiff(chain.committed), text: `Change to ${sent} confirming…`, ok: true }
     if (chain?.committed) return { value: fmtConfigDiff(chain.committed), text: 'Committed on chain', ok: true }
     if (chain?.pending) {
       return {
         value: fmtConfigDiff(chain.pending),
-        text: `Declared at block ${chain.declaredHeight}, in effect at ${chain.fromHeight}`,
+        text: `Mined from block ${chain.servedHeight}, in effect at ${chain.fromHeight}`,
         ok: false
       }
     }
+    if (sent) return { value: sent, text: 'Registration confirming…', ok: false }
+    if (chain?.state === 'registering') return { value: '—', text: 'Registered, client syncing…', ok: false }
     if (settings?.forceConfigDiff) return { value: '—', text: 'Paused while test mining', ok: false }
     if (settings?.autoCommit) return { value: '—', text: running ? 'Auto-commit on, registering…' : 'Auto-commit on', ok: false }
     if (!chain) return { value: '—', text: running ? 'Reading the chain…' : 'Unknown until the client runs', ok: false }
-    return { value: '—', text: 'Not committed', ok: false }
+    return { value: '—', text: 'Not committed: not paid', ok: false }
   })
   const commitmentSource = $derived(
     chain && !chain.live
@@ -74,29 +80,91 @@
       : undefined
   )
 
+  const testMode = $derived(Boolean(settings?.forceConfigDiff || stats?.forcedConfig))
+  /** The client read no commitment, and none is on its way: mining isn't paid. */
+  const uncommitted = $derived(
+    chain !== null &&
+      !chain.latest &&
+      !chain.inFlight &&
+      (chain.state === 'unregistered' || (!chain.api && chain.state === 'unknown'))
+  )
+  /** Mining for real without a commitment; test mining earns nothing anyway and says so itself. */
+  const unpaid = $derived(uncommitted && !testMode)
+
+  interface Alert {
+    tone: 'red' | 'amber'
+    title: string
+    text: string
+    action?: { label: string; run: () => void }
+  }
+
+  async function mineForReal(): Promise<void> {
+    await stopClient()
+    requestStartClient()
+  }
+
+  /** The two states that earn nothing, said loudly: test mining, and mining without a commitment. */
+  const alert = $derived.by((): Alert | null => {
+    if (running && testMode) {
+      return {
+        tone: 'amber',
+        title: 'Test mining: you are not earning',
+        text:
+          'The client sends no transactions, so nothing is committed, proven or paid. Use it to try out a difficulty, ' +
+          'then mine for real.',
+        action: { label: 'Mine for real', run: () => void mineForReal() }
+      }
+    }
+    if (!active && settings?.forceConfigDiff && ui.autoStartClient) {
+      return {
+        tone: 'amber',
+        title: 'Set to test mining',
+        text:
+          'The client last ran in test mining, so Start when ready starts it that way again, earning nothing. ' +
+          'Start client mines for real.'
+      }
+    }
+    if (!unpaid) return null
+    if (settings?.autoCommit) {
+      return {
+        tone: 'amber',
+        title: 'Not committed yet: you are not being paid',
+        text:
+          `Auto-commit registers you and commits ${settings.diff ?? 'your difficulty'} once the client has synced the miner ` +
+          'registry. Payouts start once that commitment takes effect.'
+      }
+    }
+    return {
+      tone: 'red',
+      title: 'No difficulty commitment: you are not being paid',
+      text:
+        `Lithos pays nothing for this mining until your difficulty is committed on chain. Commit ` +
+        `${settings?.diff ?? 'your difficulty'} to register; it takes effect about ` +
+        `${blocksAsTime(commitTiming().inForce, shownNetwork).replace(/^about /, '')} after it's sent.`,
+      action: { label: 'Commit…', run: () => (ui.dialog = 'commit') }
+    }
+  })
+
   /** The few things a newcomer must act on, instead of reading warnings in the log. */
   const warnings = $derived.by((): string[] => {
     if (!running) return []
     const list: string[] = []
-    const testMode = Boolean(settings?.forceConfigDiff || stats?.forcedConfig)
-    if (!testMode && !settings?.autoCommit) {
-      if (!chain?.latest) {
-        list.push('Mining, but not committed on chain: no payouts until you commit your difficulty.')
-      } else if (settings?.diff && !sameDiff(parseConfigDiff(settings.diff), chain.latest)) {
+    if (!testMode && !settings?.autoCommit && !chain?.inFlight && chain?.state !== 'registering') {
+      if (chain?.latest && settings?.diff && !sameDiff(parseConfigDiff(settings.diff), chain.latest)) {
         const onChain = fmtConfigDiff(chain.latest)
         list.push(
-          `Your difficulty is set to ${settings.diff}, but your on-chain commitment is ${onChain}. Auto-commit is off, ` +
-            `so ${settings.diff} won't be committed: only your commitment of ${onChain} is used.`
+          `Your difficulty is set to ${settings.diff}, but your on-chain commitment is ${onChain}. Only ${onChain} is ` +
+            `used until you commit ${settings.diff}.`
         )
       }
     }
     if (!testMode && chain?.early) {
-      const at = chain.declaredHeight
+      const at = chain.servedHeight
       list.push(
-        chain.blocksToDeclared !== null
-          ? `You should not start mining until block ${at}, your commitment's declared height. The height is currently ` +
-              `${chain.height}, so it will take an estimated ${blocksAsWait(chain.blocksToDeclared, shownNetwork)}.`
-          : `You should not start mining until block ${at}, your commitment's declared height.`
+        chain.blocksToServed !== null
+          ? `You should not start mining until block ${at}, when the stratum starts mining at your commitment. The ` +
+              `height is currently ${chain.height}, so it will take an estimated ${blocksAsWait(chain.blocksToServed, shownNetwork)}.`
+          : `You should not start mining until block ${at}, when the stratum starts mining at your commitment.`
       )
       list.push('Your client does not need to be on while waiting for commitments.')
       if (stats && stats.rigs > 0) {
@@ -104,7 +172,7 @@
       }
     } else if (!testMode && chain?.waiting) {
       list.push(
-        `Your commitment is declared, so mining now builds super shares for it. NISP submission begins at block ` +
+        `The stratum is mining at your commitment, so mining now builds super shares for it. NISP submission begins at block ` +
           `${chain.fromHeight}, when it takes effect` +
           (chain.blocksLeft !== null ? `, in about ${blocksAsWait(chain.blocksLeft, shownNetwork)}.` : '.')
       )
@@ -114,11 +182,6 @@
     } else if (stats && stats.rigs > 0 && !stats.hashesPerSecond && (settings?.reductionMultiplier ?? DEFAULT_REDUCTION_MULTIPLIER) >= 10000) {
       list.push(
         'Rig connected, no hashrate yet: with super-shares-only reporting a reading can take a while. Adjust Share reporting to 100× for a quicker one.'
-      )
-    }
-    if (testMode) {
-      list.push(
-        'Test mining: the client sends no transactions (no proofs, commitment or emissions), so this mining earns nothing. Use Start client to mine for real.'
       )
     }
     return list
@@ -195,6 +258,19 @@
       </div>
     </div>
 
+    {#if alert}
+      <div class="alert {alert.tone}" role="alert">
+        <span class="alert-mark" aria-hidden="true">!</span>
+        <div class="alert-body">
+          <strong>{alert.title}</strong>
+          <span>{alert.text}</span>
+        </div>
+        {#if alert.action}
+          <button class="btn small" onclick={alert.action.run}>{alert.action.label}</button>
+        {/if}
+      </div>
+    {/if}
+
     {#if running}
       <div class="tiles">
         <div class="tile">
@@ -217,7 +293,7 @@
         <div class="tile">
           <span class="tile-name"><span class="swatch network" aria-hidden="true"></span>Commitment</span>
           <span class="tile-value num">{commitment.value}</span>
-          <span class="tile-sub" class:ok={commitment.ok} class:warn={!commitment.ok}>
+          <span class="tile-sub" class:ok={commitment.ok} class:warn={!commitment.ok && !unpaid} class:bad={unpaid}>
             {commitment.text} ·
             <button class="link" onclick={() => (ui.dialog = 'commit')}>
               {settings?.autoCommit ? 'Details' : 'Commit…'}
@@ -242,7 +318,9 @@
         <div class="chip" title={commitmentSource}>
           <span class="micro">Commitment</span>
           {#if commitment.value !== '—'}<span class="val num">{commitment.value}</span>{/if}
-          <span class="val" class:ok={commitment.ok} class:warn={!commitment.ok}>{commitment.text}</span>
+          <span class="val" class:ok={commitment.ok} class:warn={!commitment.ok && !unpaid} class:bad={unpaid}>
+            {commitment.text}
+          </span>
           <button class="link micro" onclick={() => (ui.dialog = 'commit')}>
             {settings?.autoCommit ? 'Details' : 'Commit…'}
           </button>
@@ -272,6 +350,7 @@
         <button class="btn small" onclick={copyKey}>{keyCopied ? 'Copied' : 'Copy'}</button>
       </div>
     {:else if !active}
+      <RetiredNotice id="client" />
       <ul class="reqs" aria-label="Requirements">
         {#each requirements as r (r.label)}
           <li class:ok={r.ok}>
@@ -420,6 +499,69 @@
 
   .warn {
     color: var(--amber-light);
+  }
+
+  .bad,
+  .val.bad {
+    color: var(--red-light);
+  }
+
+  /* Louder than the warning list: these two mean the mining earns nothing. */
+  .alert {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px 14px;
+    padding: 12px 14px;
+    border: 1px solid;
+    border-radius: 12px;
+  }
+
+  .alert.red {
+    border-color: rgba(239, 68, 68, 0.5);
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--red-light);
+  }
+
+  .alert.amber {
+    border-color: rgba(251, 191, 36, 0.45);
+    background: rgba(251, 191, 36, 0.09);
+    color: var(--amber-light);
+  }
+
+  .alert-mark {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    color: #060913;
+    font-family: var(--display);
+    font-weight: 800;
+  }
+
+  .red .alert-mark {
+    background: var(--red);
+  }
+
+  .amber .alert-mark {
+    background: var(--amber);
+  }
+
+  .alert-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .alert-body strong {
+    color: var(--text-head);
+    font-family: var(--display);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
   }
 
   .chips {

@@ -106,17 +106,25 @@
   {/if}
 
   <main>
-    <!-- The frame keeps the column's scrollbar inside a border instead of hanging off the cards. -->
-    <div class="side-frame">
-      <div class="side">
+    <!-- Each tray keeps its scrollbar inside a border instead of hanging off the cards. -->
+    <div class="tray">
+      <div class="tray-scroll">
         <SetupCard />
         <NodeCard />
         <WalletCard />
       </div>
     </div>
     <div class="main-col">
-      <ClientCard />
-      <LogPanel />
+      <div class="tray client-tray">
+        <div class="tray-scroll">
+          <ClientCard />
+        </div>
+      </div>
+      <div class="tray log-tray">
+        <div class="tray-inner">
+          <LogPanel />
+        </div>
+      </div>
     </div>
   </main>
 </div>
@@ -242,6 +250,7 @@
     flex: 1;
     display: grid;
     grid-template-columns: 420px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     gap: 20px;
     min-height: 0;
     padding: 6px 24px 24px;
@@ -256,10 +265,10 @@
   }
 
   /*
-   * A recessed tray for the stacked cards. The tray itself clips, so cards scrolling out of view
-   * slide under its rounded border rather than being cut on a straight line inside it.
+   * A recessed tray for stacked cards. The tray itself clips, so cards scrolling out of view slide
+   * under its rounded border rather than being cut on a straight line inside it.
    */
-  .side-frame {
+  .tray {
     display: flex;
     min-height: 0;
     overflow: hidden;
@@ -268,19 +277,41 @@
     background: rgba(4, 6, 13, 0.55);
   }
 
-  .side {
+  .tray-scroll,
+  .tray-inner {
     flex: 1;
     display: flex;
     flex-direction: column;
     gap: 12px;
     min-height: 0;
+  }
+
+  .tray-scroll {
     padding: 10px 2px 10px 10px;
     overflow-y: auto;
     scrollbar-gutter: stable;
   }
 
+  /* The console scrolls itself; the right inset matches the other trays' scrollbar gutter. */
+  .tray-inner {
+    padding: 10px 12px 10px 10px;
+  }
+
   /* Keep the scrollbar clear of the tray's rounded corners. */
-  .side::-webkit-scrollbar-track {
+  .tray-scroll::-webkit-scrollbar-track {
     margin: 20px 0;
+  }
+
+  /*
+   * The client card takes the height it needs, shrinking (and scrolling) once alerts and live
+   * figures would squeeze the console below its floor.
+   */
+  .client-tray {
+    flex: 0 1 auto;
+  }
+
+  .log-tray {
+    flex: 1 1 0;
+    min-height: max(260px, 45%);
   }
 </style>

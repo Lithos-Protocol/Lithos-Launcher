@@ -8,11 +8,13 @@ import {
   type TaskId,
   type TaskProgress
 } from '@shared/types'
+import { clientRetired, ergoRetired } from '@shared/versions'
 import {
   chainDb,
   defaultErgo,
   detectErgo,
   ergoUpdate,
+  sameErgoLine,
   installedErgo,
   installErgo,
   listErgoReleases,
@@ -63,8 +65,17 @@ export class Installer {
       network,
       folder: layout.netDir(this.root, network),
       java: { installed: java !== null, version: java },
-      node: { installed: ergo !== null, version: ergo?.version ?? null, apiPort: nodeSettings.apiPort },
-      client: { installed: client !== null, version: client?.version ?? null }
+      node: {
+        installed: ergo !== null,
+        version: ergo?.version ?? null,
+        retired: ergo ? ergoRetired(ergo.version) : null,
+        apiPort: nodeSettings.apiPort
+      },
+      client: {
+        installed: client !== null,
+        version: client?.version ?? null,
+        retired: client ? clientRetired(client.version) : null
+      }
     }
   }
 
@@ -104,7 +115,7 @@ export class Installer {
 
   async releases(network: Network, id: ProcId, recheck: boolean): Promise<ReleaseList> {
     const state = await this.state(network)
-    const active = state[id].version
+    const { version: active, retired } = state[id]
     if (id === 'node') {
       const [list, dataDb] = await Promise.all([
         this.ergoReleases(recheck),
@@ -115,7 +126,12 @@ export class Installer {
         network,
         releases: list.map((r) => ({ version: r.version, publishedAt: r.publishedAt, size: r.size, db: ergoDb(r.version) })),
         active,
-        update: active ? ergoUpdate(list, active) : null,
+        update: active && !retired ? ergoUpdate(list, active) : null,
+        retired,
+        // The newest on the chain's database, else on the retired version's own.
+        replacement: retired
+          ? (list.find((r) => (dataDb ? ergoDb(r.version) === dataDb : sameErgoLine(r.version, active!)))?.version ?? null)
+          : null,
         dataDb
       }
     }
@@ -125,13 +141,17 @@ export class Installer {
       network,
       releases: list.map((r) => ({ version: r.version, publishedAt: r.publishedAt, size: r.size, db: null })),
       active,
-      update: active ? clientUpdate(list, active) : null,
+      update: active && !retired ? clientUpdate(list, active) : null,
+      retired,
+      replacement: retired ? (list[0]?.version ?? null) : null,
       dataDb: null
     }
   }
 
   /** Downloads `version` if it isn't installed yet, and makes it the one the launcher runs. */
   async fetchVersion(network: Network, id: ProcId, version: string): Promise<void> {
+    const retired = id === 'node' ? ergoRetired(version) : clientRetired(version)
+    if (retired) throw new Error(`${id === 'node' ? 'Ergo' : 'Lithos Client'} ${version} is retired: ${retired}`)
     await this.exclusive(async () => {
       if (id === 'node') {
         const dataDb = await chainDb(layout.nodeDataDir(this.root, network))

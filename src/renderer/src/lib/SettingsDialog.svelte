@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { blocksAsTime, COMMIT_REPLACE_BLOCKS } from '@shared/mining'
   import {
     DEFAULT_NODE_API_PORT,
     DEFAULT_NODE_P2P_PORT,
@@ -29,6 +30,7 @@
   let stratumPort = $state('')
   let multiplier = $state<number>(DEFAULT_REDUCTION_MULTIPLIER)
   let lanPanel = $state(false)
+  let autoCommit = $state(false)
   let shareWallet = $state(ui.shareWalletAcrossNetworks)
   let config = $state<NetworkConfigInfo | null>(null)
   /** The key being replaced: with a new random one, or with one the user types. */
@@ -72,6 +74,7 @@
     stratumPort = String(s.stratumPort)
     multiplier = s.reductionMultiplier
     lanPanel = s.lanPanel
+    autoCommit = s.autoCommit
   }
 
   const loadConfig = async (): Promise<void> => {
@@ -158,7 +161,8 @@
         httpPort: Number(httpPort),
         stratumPort: Number(stratumPort),
         reductionMultiplier: multiplier,
-        lanPanel
+        lanPanel,
+        autoCommit
       })
       if (err) throw new Error(err)
       loadClientFields()
@@ -381,6 +385,24 @@
             trust.{ui.platform === 'win32'
               ? ' If Windows asks whether Java may use the network, allow it on private networks.'
               : ''}
+          </p>
+        {/if}
+        <label class="check">
+          <input type="checkbox" bind:checked={autoCommit} />
+          Auto-commit: let the client commit your difficulty by itself
+        </label>
+        <span class="hint">
+          The client registers you and keeps your on-chain commitment equal to your difficulty{ui.clientSettings?.diff
+            ? ` (${ui.clientSettings.diff})`
+            : ''}, sending a change whenever you change it and the
+          contracts allow. While it is on, you can't commit from the Commit dialog. Off by default: there you choose when
+          to commit.
+        </span>
+        {#if autoCommit}
+          <p class="warn-note">
+            Each commitment is an on-chain transaction from this node's wallet and locks your difficulty for
+            {blocksAsTime(COMMIT_REPLACE_BLOCKS, network)}. With auto-commit on, saving a new difficulty is enough to send
+            one.
           </p>
         {/if}
         <div class="row">
