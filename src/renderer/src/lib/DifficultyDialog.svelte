@@ -126,7 +126,8 @@
         {:else if hashrateText.trim()}
           Add a unit: 150 MH/s, 150M or 1.2 GH/s
         {:else}
-          Use the rate your miner sustains, not its best peak.
+          Use the rate your miner sustains, not its best peak. If using reported hashrate, let it settle after ~10
+          minutes of mining.
         {/if}
       </span>
     </div>
