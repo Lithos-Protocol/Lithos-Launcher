@@ -64,6 +64,11 @@ function asString(value: unknown, maxLength: number): string {
   return value
 }
 
+function asJavaMajor(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 11 || value > 99) throw new Error('Invalid Java version')
+  return value
+}
+
 function asBoolean(value: unknown): boolean {
   if (typeof value !== 'boolean') throw new Error('Invalid argument')
   return value
@@ -79,6 +84,11 @@ function asSettingsPatch(value: unknown): ClientSettingsPatch {
     else if (key === 'autoCommit') patch.autoCommit = asBoolean(v.autoCommit)
     else if (key === 'forceConfigDiff') patch.forceConfigDiff = asBoolean(v.forceConfigDiff)
     else if (key === 'lanPanel') patch.lanPanel = asBoolean(v.lanPanel)
+    else if (key === 'arbAutoReserve') patch.arbAutoReserve = asBoolean(v.arbAutoReserve)
+    else if (key === 'arbStakeNanoErg') {
+      if (v.arbStakeNanoErg !== null && typeof v.arbStakeNanoErg !== 'number') throw new Error('Invalid argument')
+      patch.arbStakeNanoErg = v.arbStakeNanoErg as number | null
+    }
     else if (key === 'httpPort' || key === 'stratumPort' || key === 'reductionMultiplier') {
       if (typeof v[key] !== 'number') throw new Error('Invalid argument')
       patch[key] = v[key] as number
@@ -125,7 +135,8 @@ const LINKS: Record<string, string> = {
   soat: 'https://github.com/blindrun/soat-miner',
   rigel: 'https://github.com/rigelminer/rigel/releases',
   ergoReleases: 'https://github.com/ergoplatform/ergo/releases',
-  clientReleases: 'https://github.com/Lithos-Protocol/Lithos-Client/releases'
+  clientReleases: 'https://github.com/Lithos-Protocol/Lithos-Client/releases',
+  javaReleases: 'https://adoptium.net/temurin/releases/'
 }
 
 function launcherInfo(root: string): LauncherInfo {
@@ -204,6 +215,34 @@ export function registerIpc(ctx: IpcContext): void {
     await ctx.installer.prune(network, which)
     return ctx.installer.state(network)
   })
+  handle(IPC.getJavaReleases, (recheck) => ctx.installer.javaReleases(asBoolean(recheck)))
+  handle(IPC.useJava, async (m) => {
+    const major = asJavaMajor(m)
+    for (const [name, { status }] of [
+      ['node', ctx.node.proc.state],
+      ['Lithos Client', ctx.client.proc.state]
+    ] as const) {
+      if (status === 'starting' || status === 'stopping') throw new Error(`Wait until the ${name} has finished ${status}`)
+    }
+    // Java is shared by both networks. The client only runs beside the launcher's node, so a
+    // running node is all that has to come back; with "Start when ready" on, the client follows.
+    const { status, network } = ctx.node.proc.state
+    const nodeOn = status === 'running' ? network : null
+    let stopped = false
+    try {
+      await ctx.installer.fetchJava(major, async () => {
+        if (ctx.client.proc.state.status !== 'running' && ctx.node.proc.state.status !== 'running') return
+        stopped = true
+        await ctx.client.stop()
+        await ctx.node.stop()
+      })
+    } finally {
+      // Restarted even when the switch failed, on whichever Java is in use now.
+      if (stopped && nodeOn) await ctx.node.start(nodeOn)
+    }
+    await ctx.installer.pruneJava()
+    return ctx.installer.javaReleases(false)
+  })
   handle(IPC.startNode, (n) => ctx.node.start(asNetwork(n)))
   // The client depends on the node, so it always stops first.
   handle(IPC.stopNode, async () => {
@@ -237,6 +276,9 @@ export function registerIpc(ctx: IpcContext): void {
   handle(IPC.getCommitments, () => ctx.client.commitments)
   handle(IPC.refreshCommitment, (n) => ctx.client.refreshCommitment(asNetwork(n)))
   handle(IPC.commit, (n, diff) => ctx.client.commit(asNetwork(n), asString(diff, 32)))
+  handle(IPC.getArbReads, () => ctx.client.arbReads)
+  handle(IPC.refreshArb, (n) => ctx.client.refreshArb(asNetwork(n)))
+  handle(IPC.reclaimArb, (n) => ctx.client.reclaimArb(asNetwork(n)))
   handle(IPC.getNodeSettings, (n) => readNodeSettings(ctx.root, asNetwork(n)))
   handle(IPC.setNodeSettings, (n, patch) => updateNodeSettings(ctx.root, asNetwork(n), asNodeSettingsPatch(patch)))
   handle(IPC.getSystemCheck, (n) => systemCheck(ctx.root, asNetwork(n)))

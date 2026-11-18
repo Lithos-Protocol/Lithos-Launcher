@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import logo from './assets/lithos-mark.png'
+  import ArbDialog from './lib/ArbDialog.svelte'
   import ClientCard from './lib/ClientCard.svelte'
   import CommitDialog from './lib/CommitDialog.svelte'
   import DifficultyDialog from './lib/DifficultyDialog.svelte'
@@ -149,6 +150,8 @@
   <VersionsDialog />
 {:else if ui.dialog === 'walletSync'}
   <WalletSyncDialog />
+{:else if ui.dialog === 'arb'}
+  <ArbDialog />
 {/if}
 
 {#if ui.wizard}

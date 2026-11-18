@@ -6,6 +6,15 @@ import {
   recommendedBalanceNanoErg
 } from '@shared/mining'
 import { syncView } from '@shared/sync'
+import {
+  ARB_RESERVE_FACTOR,
+  DEFAULT_ARB_STAKE_NANO_ERG,
+  MIN_ARB_CLIENT,
+  type ArbReads,
+  type ArbReclaimed,
+  type ArbStake
+} from '@shared/types'
+import { compareVersions } from '@shared/versions'
 import type {
   ApiKeyName,
   ClientSettings,
@@ -16,6 +25,7 @@ import type {
   CommitmentReads,
   CommitmentSent,
   CommitmentState,
+  JavaList,
   Network,
   NetworkState,
   NodeInfo,
@@ -76,6 +86,8 @@ export const ui = $state({
   clientStats: null as ClientStats | null,
   /** Commitments the client read this session, by network; they stay after it stops. */
   commitments: {} as CommitmentReads,
+  /** Arb stakes the client read this session, by network; they stay after it stops. */
+  arb: {} as ArbReads,
   /** Start the client by itself once everything it needs is ready. */
   autoStartClient: savedAutoStart(),
   /** The user pressed Start and chose to wait for the wallet scan; starts once it catches up. */
@@ -89,6 +101,7 @@ export const ui = $state({
     | 'import'
     | 'versions'
     | 'walletSync'
+    | 'arb'
     | null,
   quickSetup: false,
   platform: '' as string,
@@ -107,8 +120,10 @@ export const ui = $state({
   installing: false,
   /** Node and client releases on GitHub for the selected network; null until checked (or offline). */
   releases: { node: null, client: null } as Record<ProcId, ReleaseList | null>,
-  /** The node or client whose version is being switched. */
-  switching: null as ProcId | null,
+  /** Java lines on Eclipse Temurin; null until checked (or offline). */
+  java: null as JavaList | null,
+  /** The node, client or Java whose version is being switched. */
+  switching: null as ProcId | 'java' | null,
   setupError: null as string | null,
   nodeError: null as string | null,
   clientError: null as string | null
@@ -141,18 +156,21 @@ export async function init(): Promise<void> {
   api.onWallet((w) => (ui.wallet = w))
   api.onClientStats((st) => (ui.clientStats = st))
   api.onCommitments((c) => (ui.commitments = c))
+  api.onArb((a) => (ui.arb = a))
   api.onProgress((p) => (ui.progress[p.task] = p))
 
-  const [app, node, client, info, wallet, stats, commitments] = await Promise.all([
+  const [app, node, client, info, wallet, stats, commitments, arb] = await Promise.all([
     api.getAppInfo(),
     api.getProc('node'),
     api.getProc('client'),
     api.getNodeInfo(),
     api.focusWallet(ui.network),
     api.getClientStats(),
-    api.getCommitments()
+    api.getCommitments(),
+    api.getArbReads()
   ])
   ui.commitments = commitments
+  ui.arb = arb
   ui.platform = app.platform
   ui.sandboxed = app.sandboxed
   ui.appImage = app.appImage
@@ -179,6 +197,27 @@ export async function refresh(): Promise<void> {
   }
   // Quietly looks for newer releases; GitHub is only asked again after a while.
   if (state.node.installed || state.client.installed) void loadReleases(false).catch(() => undefined)
+  if (state.java.installed) void loadJava(false).catch(() => undefined)
+}
+
+/** Fetches the Java lines Eclipse Temurin publishes. Throws if Adoptium can't be reached. */
+export async function loadJava(recheck: boolean): Promise<void> {
+  ui.java = await api.getJavaReleases(recheck)
+}
+
+/** Switches Java to `major` (or updates it), restarting a running node. Returns an error message, or null. */
+export async function useJava(major: number): Promise<string | null> {
+  ui.switching = 'java'
+  delete ui.progress.java
+  try {
+    ui.java = await api.useJava(major)
+    return null
+  } catch (err) {
+    return errorText(err)
+  } finally {
+    ui.switching = null
+    await refresh().catch(() => undefined)
+  }
 }
 
 /** Fetches both release lists for the selected network. Throws if GitHub can't be reached. */
@@ -559,4 +598,101 @@ export function miningBalanceTarget(): { nanoErg: number; diff: number | null } 
 export function requestStartClient(): void {
   if (clientRequirements().every((r) => r.ok)) void startClient(false)
   else ui.dialog = 'walletSync'
+}
+
+/** Where arb and its reserve stand for the selected network, from the settings and the client's last read. */
+export interface ArbView {
+  /** False when the installed client has no arb (older than 1.0.8); null when it can't be told yet. */
+  supported: boolean | null
+  autoReserve: boolean
+  /** The stake auto reserve sends, as chosen (the client's default until changed). */
+  stakeNanoErg: number
+  /** The wallet must hold this much for auto reserve to send: twice the stake. */
+  needNanoErg: number
+  /** What the client last read at the arb address; null until it has been read. */
+  stake: ArbStake | null
+  /** Read by the client running on this network now, rather than earlier this session. */
+  live: boolean
+  /** A box of the chosen stake's size is at the arb address; null when unknown. */
+  funded: boolean | null
+  balanceNanoErg: number | null
+  error: string | null
+}
+
+export function arbView(): ArbView {
+  const network = ui.network
+  const read = ui.arb[network] ?? null
+  const version = ui.net?.client.version ?? null
+  const supported = read?.unsupported
+    ? false
+    : read?.stake
+      ? true
+      : version && /^\d+(\.\d+)*$/.test(version)
+        ? compareVersions(version, MIN_ARB_CLIENT) >= 0
+        : null
+  const stakeNanoErg = ui.clientSettings?.arbStakeNanoErg ?? DEFAULT_ARB_STAKE_NANO_ERG
+  const stake = read?.stake ?? null
+  return {
+    supported,
+    autoReserve: ui.clientSettings?.arbAutoReserve ?? true,
+    stakeNanoErg,
+    needNanoErg: stakeNanoErg * ARB_RESERVE_FACTOR,
+    stake,
+    live: ui.client.status === 'running' && ui.client.network === network,
+    funded: stake ? stake.stakeNanoErg >= stakeNanoErg : null,
+    balanceNanoErg: ui.wallet.network === network ? ui.wallet.balanceNanoErg : null,
+    error: read?.error ?? null
+  }
+}
+
+export interface ArbWarning {
+  title: string
+  text: string
+}
+
+/** What a newcomer should know about arb's reserve, or null when all is well (or arb can't run). */
+export function arbWarning(v: ArbView, ergs: (nanoErg: number) => string): ArbWarning | null {
+  if (v.supported === false || ui.clientSettings?.forceConfigDiff) return null
+  if (v.live && v.stake?.paused) {
+    return {
+      title: 'Arb is paused',
+      text: 'You reclaimed the arb stake, so arb stays off until the client restarts.'
+    }
+  }
+  if (v.funded) return null
+  if (!v.autoReserve) {
+    return {
+      title: 'Arb auto reserve is off',
+      text:
+        v.funded === false
+          ? `Arb only trades with ERG at your arb address, and there isn't a ${ergs(v.stakeNanoErg)} ERG stake there. ` +
+            'Turn auto reserve on, or send ERG to the arb address yourself.'
+          : 'Arb only trades with ERG at your arb address. Unless you send some there yourself, arb earns nothing. ' +
+            'Turn auto reserve on to have the client fund it.'
+    }
+  }
+  if (v.balanceNanoErg !== null && v.balanceNanoErg < v.needNanoErg) {
+    return {
+      title: 'Not enough ERG for arb',
+      text:
+        `Auto reserve moves ${ergs(v.stakeNanoErg)} ERG to your arb address once your wallet holds ` +
+        `${ergs(v.needNanoErg)} ERG, twice the stake, so as much stays free for proofs and fees. Your wallet has ` +
+        `${ergs(v.balanceNanoErg)} ERG${v.funded === null ? ', and the arb address hasn’t been read yet' : ''}.`
+    }
+  }
+  return null
+}
+
+export async function refreshArb(): Promise<void> {
+  if (ui.client.status !== 'running' || ui.client.network !== ui.network) return
+  await api.refreshArb(ui.network).catch(() => undefined)
+}
+
+/** Sends the arb stake back to the wallet through the running client. */
+export async function reclaimArb(): Promise<{ sent: ArbReclaimed } | { error: string }> {
+  try {
+    return { sent: await api.reclaimArb(ui.network) }
+  } catch (err) {
+    return { error: errorText(err) }
+  }
 }

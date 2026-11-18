@@ -1,6 +1,7 @@
 <script lang="ts">
   import { START_MEAN, blocksAsTime, diffFor, fmtConfigDiff, miningSeconds, parseHashrate } from '@shared/mining'
   import type { Network, SystemCheck, TaskId } from '@shared/types'
+  import { DEFAULT_JAVA_MAJOR } from '@shared/versions'
   import { fmtBytesGB, fmtMB } from './format'
   import Modal from './Modal.svelte'
   import ProgressBar from './ProgressBar.svelte'
@@ -36,11 +37,11 @@
   const diskOk = $derived(check?.freeDiskBytes == null ? true : check.freeDiskBytes >= DISK_GB[ui.network] * GB)
   const blockedPorts = $derived(check ? check.ports.filter((p) => !p.free) : [])
 
-  const TASKS: { id: TaskId; label: string }[] = [
-    { id: 'java', label: 'Java 11 runtime' },
+  const TASKS: { id: TaskId; label: string }[] = $derived([
+    { id: 'java', label: `Java ${ui.net?.java.major ?? DEFAULT_JAVA_MAJOR} runtime` },
     { id: 'node', label: 'Ergo node' },
     { id: 'client', label: 'Lithos Client' }
-  ]
+  ])
 
   function close(): void {
     if (!ui.installing) ui.quickSetup = false

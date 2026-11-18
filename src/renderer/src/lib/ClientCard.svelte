@@ -3,7 +3,10 @@
   import { DEFAULT_REDUCTION_MULTIPLIER, type ProcStatus } from '@shared/types'
   import RetiredNotice from './RetiredNotice.svelte'
   import StatusDot from './StatusDot.svelte'
+  import { fmtErg } from './format'
   import {
+    arbView,
+    arbWarning,
     chainCommitment,
     clientRequirements,
     commitTiming,
@@ -143,6 +146,16 @@
         `${blocksAsTime(commitTiming().inForce, shownNetwork).replace(/^about /, '')} after it's sent.`,
       action: { label: 'Commit…', run: () => (ui.dialog = 'commit') }
     }
+  })
+
+  const arb = $derived(arbView())
+  const arbAlert = $derived(arbWarning(arb, fmtErg))
+  /** The arb chip's value: the reserve setting, or what the client holds there once read. */
+  const arbText = $derived.by((): string => {
+    if (arb.supported === false) return 'Needs a newer client'
+    if (arb.live && arb.stake?.paused) return 'Paused'
+    if (arb.stake && arb.stake.nanoErg > 0) return `${fmtErg(arb.stake.nanoErg)} ERG held`
+    return arb.autoReserve ? `Auto · ${fmtErg(arb.stakeNanoErg)} ERG` : 'Auto reserve off'
   })
 
   /** The few things a newcomer must act on, instead of reading warnings in the log. */
@@ -314,6 +327,11 @@
         <span class="val num">{(settings?.reductionMultiplier ?? DEFAULT_REDUCTION_MULTIPLIER).toLocaleString('en-US')}×</span>
         <button class="link micro" onclick={() => (ui.dialog = 'shares')}>Adjust</button>
       </div>
+      <div class="chip">
+        <span class="micro">Arb reserve</span>
+        <span class="val" class:warn={arbAlert !== null} class:ok={arb.funded === true && arbAlert === null}>{arbText}</span>
+        <button class="link micro" onclick={() => (ui.dialog = 'arb')}>Manage</button>
+      </div>
       {#if !running}
         <div class="chip" title={commitmentSource}>
           <span class="micro">Commitment</span>
@@ -327,6 +345,17 @@
         </div>
       {/if}
     </div>
+
+    {#if arbAlert}
+      <div class="alert amber" role="status">
+        <span class="alert-mark" aria-hidden="true">!</span>
+        <div class="alert-body">
+          <strong>{arbAlert.title}</strong>
+          <span>{arbAlert.text}</span>
+        </div>
+        <button class="btn small" onclick={() => (ui.dialog = 'arb')}>Arb reserve…</button>
+      </div>
+    {/if}
 
     {#if running && stratumUrl}
       <div class="endpoint well">

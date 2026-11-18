@@ -14,6 +14,8 @@ const api: LauncherApi = {
   install: (network) => ipcRenderer.invoke(IPC.install, network),
   getReleases: (network, id, recheck) => ipcRenderer.invoke(IPC.getReleases, network, id, recheck),
   useVersion: (network, id, version) => ipcRenderer.invoke(IPC.useVersion, network, id, version),
+  getJavaReleases: (recheck) => ipcRenderer.invoke(IPC.getJavaReleases, recheck),
+  useJava: (major) => ipcRenderer.invoke(IPC.useJava, major),
   startNode: (network) => ipcRenderer.invoke(IPC.startNode, network),
   stopNode: () => ipcRenderer.invoke(IPC.stopNode),
   getProc: (id) => ipcRenderer.invoke(IPC.getProc, id),
@@ -32,6 +34,9 @@ const api: LauncherApi = {
   getCommitments: () => ipcRenderer.invoke(IPC.getCommitments),
   refreshCommitment: (network) => ipcRenderer.invoke(IPC.refreshCommitment, network),
   commit: (network, diff) => ipcRenderer.invoke(IPC.commit, network, diff),
+  getArbReads: () => ipcRenderer.invoke(IPC.getArbReads),
+  refreshArb: (network) => ipcRenderer.invoke(IPC.refreshArb, network),
+  reclaimArb: (network) => ipcRenderer.invoke(IPC.reclaimArb, network),
   getNodeSettings: (network) => ipcRenderer.invoke(IPC.getNodeSettings, network),
   setNodeSettings: (network, patch) => ipcRenderer.invoke(IPC.setNodeSettings, network, patch),
   getSystemCheck: (network) => ipcRenderer.invoke(IPC.getSystemCheck, network),
@@ -67,7 +72,8 @@ const api: LauncherApi = {
   onNodeInfo: (cb) => subscribe(IPC.nodeInfo, cb),
   onWallet: (cb) => subscribe(IPC.wallet, cb),
   onClientStats: (cb) => subscribe(IPC.clientStats, cb),
-  onCommitments: (cb) => subscribe(IPC.commitments, cb)
+  onCommitments: (cb) => subscribe(IPC.commitments, cb),
+  onArb: (cb) => subscribe(IPC.arb, cb)
 }
 
 contextBridge.exposeInMainWorld('lithos', api)
