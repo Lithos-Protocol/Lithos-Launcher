@@ -2,8 +2,19 @@ import { randomBytes } from 'node:crypto'
 import { hostname } from 'node:os'
 import { WINDOW_BLOCKS } from '@shared/mining'
 import { syncView } from '@shared/sync'
-import type { ClientStats, CommitmentRead, CommitmentReads, CommitmentSent, Network, WalletState } from '@shared/types'
+import type {
+  ArbRead,
+  ArbReads,
+  ArbReclaimed,
+  ClientStats,
+  CommitmentRead,
+  CommitmentReads,
+  CommitmentSent,
+  Network,
+  WalletState
+} from '@shared/types'
 import { clientRetired } from '@shared/versions'
+import { arbStakeOf, reclaimedOf } from './arb'
 import { CLIENT_ENV, managedClientKeys, readClientSettings, TEST_MODE_LINES, writeClientConf } from './clientConf'
 import { commitError, commitmentOf, legacyCommitmentOf, sentOf } from './commitment'
 import { diagnose } from './diagnose'
@@ -62,6 +73,12 @@ export class ClientController {
   private commitReadAt = 0
   /** Reads `GET /mining/commitment` from the running client; concurrent calls share one read. */
   private readonly readCommitment = singleFlight(() => this.fetchCommitment())
+  /** The last arb stake read per network, kept for the session after the client stops. */
+  private arbs: ArbReads = {}
+  private arbReaders: Partial<Record<Network, string | null>> = {}
+  /** The node height the arb stake was last read at; it costs the client an extra-index call. */
+  private arbReadHeight: number | null | undefined = undefined
+  private readonly readArb = singleFlight(() => this.fetchArb())
 
   constructor(
     private readonly root: string,
@@ -71,7 +88,8 @@ export class ClientController {
     /** Development only: allow starting before the node is synced. */
     private readonly skipSyncGate: boolean,
     private readonly emitStats: (stats: ClientStats | null) => void,
-    private readonly emitCommitments: (reads: CommitmentReads) => void
+    private readonly emitCommitments: (reads: CommitmentReads) => void,
+    private readonly emitArb: (reads: ArbReads) => void
   ) {
     this.proc.on('exit', (code: number | null) => this.onExit(code))
     this.wallet.on('state', (w: WalletState) => this.onWallet(w))
@@ -83,6 +101,10 @@ export class ClientController {
 
   get commitments(): CommitmentReads {
     return this.reads
+  }
+
+  get arbReads(): ArbReads {
+    return this.arbs
   }
 
   get runningNetwork(): Network | null {
@@ -336,9 +358,12 @@ export class ClientController {
       } else if (this.commitReadDue(network)) {
         void this.readCommitment()
       }
+      // Once per block, after the client answers: what is at the arb address only moves with the chain.
+      if ((overview || workers) && (this.node.info?.fullHeight ?? null) !== this.arbReadHeight) void this.readArb()
       if (token === this.statsToken) setTimeout(tick, STATS_POLL_MS)
     }
     this.commitReadHeight = undefined
+    this.arbReadHeight = undefined
     void tick()
   }
 
@@ -430,6 +455,79 @@ export class ClientController {
     return sent
   }
 
+  private async fetchArb(): Promise<void> {
+    const network = this.runningNetwork
+    const port = this.httpPort
+    const key = network ? this.vault.getLithosKey(network) : null
+    if (network === null || port === null || !key) return
+    this.arbReadHeight = this.node.info?.fullHeight ?? null
+    let read: ArbRead
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/wallet/arb`, {
+        headers: { api_key: key.key },
+        signal: AbortSignal.timeout(COMMIT_READ_TIMEOUT_MS)
+      })
+      const body: unknown = await res.json().catch(() => null)
+      const stake = res.ok ? arbStakeOf(body) : null
+      if (res.status === 404) read = { stake: null, unsupported: true, error: null }
+      else if (stake) read = { stake, unsupported: false, error: null }
+      // Keep the last stake read: an error now (the node busy, say) doesn't empty the address.
+      else read = { stake: this.arbs[network]?.stake ?? null, unsupported: false, error: commitError(res.status, body) }
+    } catch {
+      // Not answering yet: try again on the next poll.
+      this.arbReadHeight = undefined
+      return
+    }
+    const w = this.wallet.state
+    this.arbReaders[network] = (w.network === network ? w.address : null) ?? this.arbReaders[network] ?? null
+    const before = this.arbs[network]
+    if (JSON.stringify(before) === JSON.stringify(read)) return
+    if (read.error && read.error !== before?.error) this.proc.log(`Couldn't read the arb stake: ${read.error}`)
+    this.arbs = { ...this.arbs, [network]: read }
+    this.emitArb(this.arbs)
+  }
+
+  /** Reads the running client's arb stake again, now. */
+  async refreshArb(network: Network): Promise<void> {
+    if (this.runningNetwork !== network) return
+    await this.readArb.fresh()
+  }
+
+  /** Sends everything at the arb address back to the wallet. The client keeps arb off until it restarts. */
+  async reclaimArb(network: Network): Promise<ArbReclaimed> {
+    const port = this.runningNetwork === network && this.proc.state.status === 'running' ? this.httpPort : null
+    if (port === null) throw new Error(`Start the ${network} Lithos Client first`)
+    if (this.arbs[network]?.unsupported) {
+      throw new Error('This Lithos Client version has no arb. Update it under Versions.')
+    }
+    const key = this.vault.getLithosKey(network)
+    if (!key) throw new Error('The Lithos API key is missing. Restart the client to make one.')
+    let res: Response
+    try {
+      res = await fetch(`http://127.0.0.1:${port}/wallet/arb/reclaim`, {
+        method: 'POST',
+        headers: { api_key: key.key },
+        signal: AbortSignal.timeout(COMMIT_TIMEOUT_MS)
+      })
+    } catch {
+      await this.refreshArb(network)
+      throw new Error("The Lithos Client didn't answer in time and may still send it. Check the arb address before retrying.")
+    }
+    const body: unknown = await res.json().catch(() => null)
+    await this.refreshArb(network)
+    if (!res.ok) {
+      const message = commitError(res.status, body)
+      this.proc.log(`Arb stake not reclaimed: ${message}`)
+      throw new Error(message)
+    }
+    const sent = reclaimedOf(body)
+    this.proc.log(
+      `Reclaimed ${sent.nanoErg / 1e9} ERG from the arb address as ${sent.txId} (${sent.outcome}). ` +
+        'Arb is off until the client restarts.'
+    )
+    return sent
+  }
+
   private remember(network: Network, read: CommitmentRead): void {
     const w = this.wallet.state
     this.readers[network] = (w.network === network ? w.address : null) ?? this.readers[network] ?? null
@@ -446,7 +544,17 @@ export class ClientController {
   /** A different wallet on a network makes what was read there someone else's commitment. */
   private onWallet(w: WalletState): void {
     const network = w.network
-    if (!network || !w.address || !this.reads[network]) return
+    if (!network || !w.address) return
+    // The arb address belongs to the wallet it was read with, too.
+    const arbReader = this.arbReaders[network]
+    if (this.arbs[network] && arbReader && arbReader !== w.address) {
+      const next = { ...this.arbs }
+      delete next[network]
+      delete this.arbReaders[network]
+      this.arbs = next
+      this.emitArb(this.arbs)
+    }
+    if (!this.reads[network]) return
     const reader = this.readers[network]
     if (reader === null || reader === undefined || reader === w.address) return
     const next = { ...this.reads }

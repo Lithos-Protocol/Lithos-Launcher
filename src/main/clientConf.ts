@@ -2,7 +2,10 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { CONFIG_DIFF_RE } from '@shared/mining'
 import {
+  DEFAULT_ARB_STAKE_NANO_ERG,
   DEFAULT_REDUCTION_MULTIPLIER,
+  MAX_ARB_STAKE_NANO_ERG,
+  MIN_ARB_STAKE_NANO_ERG,
   REDUCTION_MULTIPLIERS,
   type ClientSettings,
   type ClientSettingsPatch,
@@ -26,7 +29,9 @@ const KEYS = {
   diff: 'stratum.diff',
   autoCommit: 'state.autoCommit',
   forceConfigDiff: 'stratum.forceConfigDiff',
-  reductionMultiplier: 'stratum.reductionMultiplier'
+  reductionMultiplier: 'stratum.reductionMultiplier',
+  arbAutoReserve: 'batching.arb.autoReserve',
+  arbStakeNanoErg: 'batching.arb.stakeNanoErg'
 } as const
 
 /**
@@ -88,7 +93,10 @@ export async function readClientSettings(root: string, network: Network): Promis
     httpPort: (await readManagedNumber(file, KEYS.httpPort)) ?? CLIENT_DEFAULT_PORTS.http,
     stratumPort: (await readManagedNumber(file, KEYS.stratumPort)) ?? CLIENT_DEFAULT_PORTS.stratum,
     reductionMultiplier: (await readManagedNumber(file, KEYS.reductionMultiplier)) ?? DEFAULT_REDUCTION_MULTIPLIER,
-    lanPanel: parseQuoted(await readManagedValue(file, KEYS.httpAddress)) === ALL_ADDRESSES
+    lanPanel: parseQuoted(await readManagedValue(file, KEYS.httpAddress)) === ALL_ADDRESSES,
+    // The client turns auto reserve on unless told otherwise.
+    arbAutoReserve: (await readManagedValue(file, KEYS.arbAutoReserve)) !== 'false',
+    arbStakeNanoErg: await readManagedNumber(file, KEYS.arbStakeNanoErg)
   }
 }
 
@@ -133,6 +141,16 @@ export async function updateClientSettings(
   }
   if (patch.lanPanel !== undefined) {
     entries[KEYS.httpAddress] = JSON.stringify(patch.lanPanel ? ALL_ADDRESSES : LOCAL_ADDRESS)
+  }
+  if (patch.arbAutoReserve !== undefined) entries[KEYS.arbAutoReserve] = String(patch.arbAutoReserve)
+  if (patch.arbStakeNanoErg !== undefined) {
+    const stake = patch.arbStakeNanoErg ?? DEFAULT_ARB_STAKE_NANO_ERG
+    if (!Number.isSafeInteger(stake) || stake < MIN_ARB_STAKE_NANO_ERG || stake > MAX_ARB_STAKE_NANO_ERG) {
+      throw new Error(
+        `The arb stake is from ${MIN_ARB_STAKE_NANO_ERG / 1e9} to ${(MAX_ARB_STAKE_NANO_ERG / 1e9).toLocaleString('en-US')} ERG`
+      )
+    }
+    entries[KEYS.arbStakeNanoErg] = String(stake)
   }
   await mkdir(layout.clientDir(root, network), { recursive: true })
   await updateManagedLines(layout.clientConf(root, network), entries)
@@ -194,6 +212,9 @@ function clientBlock(c: ClientConf): string[] {
   lines.push('stratum.reduceShareMessages = true', `${KEYS.reductionMultiplier} = ${s.reductionMultiplier}`)
   // Registration and commitment are on-chain and lock the difficulty for 845 blocks: opt-in only.
   lines.push(`${KEYS.autoCommit} = ${s.autoCommit}`, `${KEYS.forceConfigDiff} = ${s.forceConfigDiff}`)
+  // Arb (client 1.0.8+; older clients ignore these). The stake keeps the client's default until chosen.
+  lines.push(`${KEYS.arbAutoReserve} = ${s.arbAutoReserve}`)
+  if (s.arbStakeNanoErg !== null) lines.push(`${KEYS.arbStakeNanoErg} = ${s.arbStakeNanoErg}`)
   if (s.forceConfigDiff) lines.push(...Object.entries(TEST_MODE_LINES).map(([key, value]) => `${key} = ${value}`))
   return lines
 }

@@ -84,6 +84,11 @@ function asSettingsPatch(value: unknown): ClientSettingsPatch {
     else if (key === 'autoCommit') patch.autoCommit = asBoolean(v.autoCommit)
     else if (key === 'forceConfigDiff') patch.forceConfigDiff = asBoolean(v.forceConfigDiff)
     else if (key === 'lanPanel') patch.lanPanel = asBoolean(v.lanPanel)
+    else if (key === 'arbAutoReserve') patch.arbAutoReserve = asBoolean(v.arbAutoReserve)
+    else if (key === 'arbStakeNanoErg') {
+      if (v.arbStakeNanoErg !== null && typeof v.arbStakeNanoErg !== 'number') throw new Error('Invalid argument')
+      patch.arbStakeNanoErg = v.arbStakeNanoErg as number | null
+    }
     else if (key === 'httpPort' || key === 'stratumPort' || key === 'reductionMultiplier') {
       if (typeof v[key] !== 'number') throw new Error('Invalid argument')
       patch[key] = v[key] as number
@@ -271,6 +276,9 @@ export function registerIpc(ctx: IpcContext): void {
   handle(IPC.getCommitments, () => ctx.client.commitments)
   handle(IPC.refreshCommitment, (n) => ctx.client.refreshCommitment(asNetwork(n)))
   handle(IPC.commit, (n, diff) => ctx.client.commit(asNetwork(n), asString(diff, 32)))
+  handle(IPC.getArbReads, () => ctx.client.arbReads)
+  handle(IPC.refreshArb, (n) => ctx.client.refreshArb(asNetwork(n)))
+  handle(IPC.reclaimArb, (n) => ctx.client.reclaimArb(asNetwork(n)))
   handle(IPC.getNodeSettings, (n) => readNodeSettings(ctx.root, asNetwork(n)))
   handle(IPC.setNodeSettings, (n, patch) => updateNodeSettings(ctx.root, asNetwork(n), asNodeSettingsPatch(patch)))
   handle(IPC.getSystemCheck, (n) => systemCheck(ctx.root, asNetwork(n)))

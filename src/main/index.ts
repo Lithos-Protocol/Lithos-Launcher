@@ -149,7 +149,8 @@ function main(): void {
       wallet,
       skipSyncGate,
       (s) => send(IPC.clientStats, s),
-      (c) => send(IPC.commitments, c)
+      (c) => send(IPC.commitments, c),
+      (a) => send(IPC.arb, a)
     )
     client.proc.on('state', (s) => send(IPC.procState, s))
     client.proc.on('logs', (chunk) => send(IPC.logs, chunk))

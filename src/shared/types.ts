@@ -193,7 +193,25 @@ export interface ClientSettings {
   reductionMultiplier: number
   /** Serve the panel on all interfaces so phones and other computers on the LAN can open it. */
   lanPanel: boolean
+  /**
+   * batching.arb.autoReserve: with no stake at the arb address, the client sends one from the wallet
+   * once the wallet holds twice the stake. On by default, as in the client.
+   */
+  arbAutoReserve: boolean
+  /** batching.arb.stakeNanoErg: the stake auto reserve sends; null leaves the client's default. */
+  arbStakeNanoErg: number | null
 }
+
+/** The client's own default for batching.arb.stakeNanoErg: 10 ERG. */
+export const DEFAULT_ARB_STAKE_NANO_ERG = 10_000_000_000
+/** Cycles only start from a box of at least 0.1 ERG at the arb address. */
+export const MIN_ARB_STAKE_NANO_ERG = 100_000_000
+/** A sanity cap on the stake the launcher writes: 100,000 ERG. */
+export const MAX_ARB_STAKE_NANO_ERG = 100_000 * 1_000_000_000
+/** Auto reserve only sends while the wallet's spendable ERG is at least this many stakes. */
+export const ARB_RESERVE_FACTOR = 2
+/** The first mainnet client with the arb API and auto reserve. */
+export const MIN_ARB_CLIENT = '1.0.8'
 
 export const REDUCTION_MULTIPLIERS = [10, 100, 1000, 10000] as const
 /**
@@ -205,7 +223,15 @@ export const DEFAULT_REDUCTION_MULTIPLIER = 1000
 export type ClientSettingsPatch = Partial<
   Pick<
     ClientSettings,
-    'diff' | 'autoCommit' | 'forceConfigDiff' | 'httpPort' | 'stratumPort' | 'reductionMultiplier' | 'lanPanel'
+    | 'diff'
+    | 'autoCommit'
+    | 'forceConfigDiff'
+    | 'httpPort'
+    | 'stratumPort'
+    | 'reductionMultiplier'
+    | 'lanPanel'
+    | 'arbAutoReserve'
+    | 'arbStakeNanoErg'
   >
 >
 
@@ -298,6 +324,46 @@ export interface CommitmentSent {
 }
 
 export type CommitmentReads = Partial<Record<Network, CommitmentRead>>
+
+/** The arb stake as the running client reports it (`GET /wallet/arb`, client 1.0.8 and later). */
+export interface ArbStake {
+  /** This wallet's arb address: its first key under a script of its own. Not in the wallet balance. */
+  address: string
+  /** Arb is on and can reach a block (mining with block transactions, the arb source has room). */
+  enabled: boolean
+  /** A reclaim stopped arb until the client restarts. */
+  paused: boolean
+  /** The stake auto reserve sends, as the running client was started with; 0 while arb is inactive. */
+  targetNanoErg: number
+  /** ERG of the box cycles start from, 0 when there is none. */
+  stakeNanoErg: number
+  /** Confirmed boxes at the arb address, and their ERG, which a reclaim returns less its fee. */
+  boxes: number
+  nanoErg: number
+}
+
+/** The last arb read for a network, kept for the session after the client stops. */
+export interface ArbRead {
+  stake: ArbStake | null
+  /** The client has no arb API (older than 1.0.8). */
+  unsupported: boolean
+  /** Why the last read failed, e.g. the node's extra index is off; null when it worked. */
+  error: string | null
+}
+
+export type ArbReads = Partial<Record<Network, ArbRead>>
+
+/** A reclaim of the arb stake to the wallet's first address. */
+export interface ArbReclaimed {
+  txId: string
+  boxes: number
+  /** ERG of the boxes spent, before the 0.001 ERG fee. */
+  nanoErg: number
+  /** `accepted`, or `uncertain` when the node's answer was lost. */
+  outcome: string
+  /** Boxes left because one transaction could not spend them all. */
+  remainingBoxes: number
+}
 
 /** What an existing setup contains, shown before anything is changed. */
 export interface ImportPreview {
@@ -464,6 +530,15 @@ export interface LauncherApi {
    * Lithos API key in the main process. The new commitment is then read again.
    */
   commit(network: Network, diff: string): Promise<CommitmentSent>
+  /** Arb stakes the client has read this session, by network. */
+  getArbReads(): Promise<ArbReads>
+  /** Has the running client read this network's arb stake again; resolves once it has. */
+  refreshArb(network: Network): Promise<void>
+  /**
+   * Sends everything at the arb address back to the wallet through the running client. Arb stays
+   * off until the client restarts.
+   */
+  reclaimArb(network: Network): Promise<ArbReclaimed>
   getNodeSettings(network: Network): Promise<NodeSettings>
   /** Saves to ergo.conf. The node picks changes up on its next start. */
   setNodeSettings(network: Network, patch: NodeSettingsPatch): Promise<NodeSettings>
@@ -524,6 +599,7 @@ export interface LauncherApi {
   onWallet(cb: (w: WalletState) => void): () => void
   onClientStats(cb: (s: ClientStats | null) => void): () => void
   onCommitments(cb: (c: CommitmentReads) => void): () => void
+  onArb(cb: (a: ArbReads) => void): () => void
 }
 
 export const IPC = {
@@ -552,6 +628,9 @@ export const IPC = {
   getCommitments: 'client:get-commitments',
   refreshCommitment: 'client:refresh-commitment',
   commit: 'client:commit',
+  getArbReads: 'client:get-arb',
+  refreshArb: 'client:refresh-arb',
+  reclaimArb: 'client:reclaim-arb',
   getNodeSettings: 'node:get-settings',
   setNodeSettings: 'node:set-settings',
   getSystemCheck: 'launcher:system-check',
@@ -587,5 +666,6 @@ export const IPC = {
   nodeInfo: 'evt:node-info',
   wallet: 'evt:wallet',
   clientStats: 'evt:client-stats',
-  commitments: 'evt:commitments'
+  commitments: 'evt:commitments',
+  arb: 'evt:arb'
 } as const
