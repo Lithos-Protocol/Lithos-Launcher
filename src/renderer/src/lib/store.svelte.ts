@@ -16,6 +16,7 @@ import type {
   CommitmentReads,
   CommitmentSent,
   CommitmentState,
+  JavaList,
   Network,
   NetworkState,
   NodeInfo,
@@ -107,8 +108,10 @@ export const ui = $state({
   installing: false,
   /** Node and client releases on GitHub for the selected network; null until checked (or offline). */
   releases: { node: null, client: null } as Record<ProcId, ReleaseList | null>,
-  /** The node or client whose version is being switched. */
-  switching: null as ProcId | null,
+  /** Java lines on Eclipse Temurin; null until checked (or offline). */
+  java: null as JavaList | null,
+  /** The node, client or Java whose version is being switched. */
+  switching: null as ProcId | 'java' | null,
   setupError: null as string | null,
   nodeError: null as string | null,
   clientError: null as string | null
@@ -179,6 +182,27 @@ export async function refresh(): Promise<void> {
   }
   // Quietly looks for newer releases; GitHub is only asked again after a while.
   if (state.node.installed || state.client.installed) void loadReleases(false).catch(() => undefined)
+  if (state.java.installed) void loadJava(false).catch(() => undefined)
+}
+
+/** Fetches the Java lines Eclipse Temurin publishes. Throws if Adoptium can't be reached. */
+export async function loadJava(recheck: boolean): Promise<void> {
+  ui.java = await api.getJavaReleases(recheck)
+}
+
+/** Switches Java to `major` (or updates it), restarting a running node. Returns an error message, or null. */
+export async function useJava(major: number): Promise<string | null> {
+  ui.switching = 'java'
+  delete ui.progress.java
+  try {
+    ui.java = await api.useJava(major)
+    return null
+  } catch (err) {
+    return errorText(err)
+  } finally {
+    ui.switching = null
+    await refresh().catch(() => undefined)
+  }
 }
 
 /** Fetches both release lists for the selected network. Throws if GitHub can't be reached. */

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { TaskId, TaskProgress } from '@shared/types'
+  import { DEFAULT_JAVA_MAJOR } from '@shared/versions'
   import { fmtMB } from './format'
   import ProgressBar from './ProgressBar.svelte'
   import { install, openFolder, ui } from './store.svelte'
@@ -15,7 +16,7 @@
   const steps: Step[] = $derived([
     {
       id: 'java',
-      label: 'Java 11 runtime',
+      label: `Java ${ui.net?.java.major ?? DEFAULT_JAVA_MAJOR} runtime`,
       source: 'Eclipse Temurin · ~45 MB',
       installed: ui.net?.java.installed ?? false,
       version: ui.net?.java.version ?? null
@@ -39,6 +40,7 @@
   const allInstalled = $derived(steps.every((s) => s.installed))
   const nodeUpdate = $derived(ui.releases.node?.update ?? null)
   const clientUpdate = $derived(ui.releases.client?.update ?? null)
+  const javaUpdate = $derived(ui.java?.update ?? null)
   const retired = $derived(Boolean(ui.net?.node.retired || ui.net?.client.retired))
   // Once everything is in place the card shrinks to one line to make room for the node and wallet.
   const compact = $derived(allInstalled && !ui.installing && !ui.setupError)
@@ -68,11 +70,11 @@
         disabled={!ui.net}
         title={retired
           ? 'A version in use is retired'
-          : nodeUpdate || clientUpdate
+          : nodeUpdate || clientUpdate || javaUpdate
             ? 'An update is available'
-            : 'Pick the node and client versions'}
+            : 'Pick the node, client and Java versions'}
       >
-        Versions{#if retired || nodeUpdate || clientUpdate}<span class="dot" aria-label="Update available"></span>{/if}
+        Versions{#if retired || nodeUpdate || clientUpdate || javaUpdate}<span class="dot" aria-label="Update available"></span>{/if}
       </button>
       <button class="btn small" onclick={openFolder} title={ui.net?.folder}>Open folder ↗</button>
     </div>
@@ -83,7 +85,12 @@
       <span class="tick" aria-hidden="true">✓</span>
       <span class="ready-title">{retired ? 'Installed, update needed' : 'Everything installed'}</span>
       <div class="versions">
-        <span class="chip"><span class="micro">Java</span><span class="num">{ui.net?.java.version}</span></span>
+        <span class="chip">
+          <span class="micro">Java</span><span class="num">{ui.net?.java.version}</span>
+          {#if javaUpdate}
+            <span class="up" title="Java {javaUpdate} is available">↑ {javaUpdate}</span>
+          {/if}
+        </span>
         <span class="chip">
           <span class="micro">Ergo</span><span class="num">{ui.net?.node.version}</span>
           {#if ui.net?.node.retired}
@@ -114,7 +121,9 @@
               <span class="label">{step.label}</span>
               <span class="version mono">
                 {step.installed ? (step.version ?? '') : active ? '' : 'Not installed'}
-                {#if step.installed && step.id !== 'java' && ui.releases[step.id]?.update}
+                {#if step.installed && step.id === 'java' && javaUpdate}
+                  <span class="up">↑ {javaUpdate}</span>
+                {:else if step.installed && step.id !== 'java' && ui.releases[step.id]?.update}
                   <span class="up">↑ {ui.releases[step.id]?.update}</span>
                 {/if}
               </span>

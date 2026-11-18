@@ -64,6 +64,11 @@ function asString(value: unknown, maxLength: number): string {
   return value
 }
 
+function asJavaMajor(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 11 || value > 99) throw new Error('Invalid Java version')
+  return value
+}
+
 function asBoolean(value: unknown): boolean {
   if (typeof value !== 'boolean') throw new Error('Invalid argument')
   return value
@@ -125,7 +130,8 @@ const LINKS: Record<string, string> = {
   soat: 'https://github.com/blindrun/soat-miner',
   rigel: 'https://github.com/rigelminer/rigel/releases',
   ergoReleases: 'https://github.com/ergoplatform/ergo/releases',
-  clientReleases: 'https://github.com/Lithos-Protocol/Lithos-Client/releases'
+  clientReleases: 'https://github.com/Lithos-Protocol/Lithos-Client/releases',
+  javaReleases: 'https://adoptium.net/temurin/releases/'
 }
 
 function launcherInfo(root: string): LauncherInfo {
@@ -203,6 +209,34 @@ export function registerIpc(ctx: IpcContext): void {
     // Only once the new version is up, so a failed start can switch straight back.
     await ctx.installer.prune(network, which)
     return ctx.installer.state(network)
+  })
+  handle(IPC.getJavaReleases, (recheck) => ctx.installer.javaReleases(asBoolean(recheck)))
+  handle(IPC.useJava, async (m) => {
+    const major = asJavaMajor(m)
+    for (const [name, { status }] of [
+      ['node', ctx.node.proc.state],
+      ['Lithos Client', ctx.client.proc.state]
+    ] as const) {
+      if (status === 'starting' || status === 'stopping') throw new Error(`Wait until the ${name} has finished ${status}`)
+    }
+    // Java is shared by both networks. The client only runs beside the launcher's node, so a
+    // running node is all that has to come back; with "Start when ready" on, the client follows.
+    const { status, network } = ctx.node.proc.state
+    const nodeOn = status === 'running' ? network : null
+    let stopped = false
+    try {
+      await ctx.installer.fetchJava(major, async () => {
+        if (ctx.client.proc.state.status !== 'running' && ctx.node.proc.state.status !== 'running') return
+        stopped = true
+        await ctx.client.stop()
+        await ctx.node.stop()
+      })
+    } finally {
+      // Restarted even when the switch failed, on whichever Java is in use now.
+      if (stopped && nodeOn) await ctx.node.start(nodeOn)
+    }
+    await ctx.installer.pruneJava()
+    return ctx.installer.javaReleases(false)
   })
   handle(IPC.startNode, (n) => ctx.node.start(asNetwork(n)))
   // The client depends on the node, so it always stops first.

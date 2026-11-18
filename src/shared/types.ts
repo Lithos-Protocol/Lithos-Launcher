@@ -25,7 +25,8 @@ export interface NetworkState {
   network: Network
   /** Folder holding this network's node and client, for display only. */
   folder: string
-  java: ComponentState
+  /** Shared by both networks. `major` is the Java line the launcher runs (11 unless picked). */
+  java: ComponentState & { major: number }
   node: RunnableState & { apiPort: number }
   client: RunnableState
 }
@@ -71,6 +72,28 @@ export interface ReleaseList {
   replacement: string | null
   /** Node only: the database the existing chain data was written with, or null before there is any. */
   dataDb: ErgoDb | null
+}
+
+/** One Java line (an LTS major) the launcher can install from Eclipse Temurin. */
+export interface JavaRelease {
+  major: number
+  /** Newest build of this major, e.g. "11.0.33+10". */
+  version: string
+  publishedAt: string
+  size: number
+}
+
+export interface JavaList {
+  /** Oldest major first. */
+  releases: JavaRelease[]
+  /** The major the launcher runs. */
+  active: number
+  /** The installed build of `active`, or null before Java is installed. */
+  installed: string | null
+  /** A newer build of `active` to update to, or null. */
+  update: string | null
+  /** The major used unless another one is picked. */
+  defaultMajor: number
 }
 
 export interface ProcState {
@@ -342,7 +365,7 @@ export interface NetworkConfigInfo {
 }
 
 /** External pages the UI may open; the URLs live in the main process. */
-export type LinkName = 'soat' | 'rigel' | 'ergoReleases' | 'clientReleases'
+export type LinkName = 'soat' | 'rigel' | 'ergoReleases' | 'clientReleases' | 'javaReleases'
 
 export interface SystemCheck {
   totalMemBytes: number
@@ -407,6 +430,14 @@ export interface LauncherApi {
    * version is then removed.
    */
   useVersion(network: Network, id: ProcId, version: string): Promise<NetworkState>
+  /** Java lines on Eclipse Temurin. Cached for a while unless `recheck`. */
+  getJavaReleases(recheck: boolean): Promise<JavaList>
+  /**
+   * Installs the newest build of a Java major if it isn't installed yet (or is out of date), and
+   * makes it the one the node and client run on. A running node restarts on it (the client stops
+   * first); the other Java versions are then removed.
+   */
+  useJava(major: number): Promise<JavaList>
   startNode(network: Network): Promise<void>
   stopNode(): Promise<void>
   getProc(id: ProcId): Promise<ProcState>
@@ -501,6 +532,8 @@ export const IPC = {
   install: 'launcher:install',
   getReleases: 'versions:list',
   useVersion: 'versions:use',
+  getJavaReleases: 'java:list',
+  useJava: 'java:use',
   startNode: 'node:start',
   stopNode: 'node:stop',
   getProc: 'proc:get',

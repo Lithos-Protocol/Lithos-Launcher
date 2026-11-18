@@ -1,6 +1,7 @@
 import {
   ERGO_DB_LABEL,
   ergoDb,
+  type JavaList,
   type Network,
   type NetworkState,
   type ProcId,
@@ -8,7 +9,7 @@ import {
   type TaskId,
   type TaskProgress
 } from '@shared/types'
-import { clientRetired, ergoRetired } from '@shared/versions'
+import { clientRetired, DEFAULT_JAVA_MAJOR, ergoRetired } from '@shared/versions'
 import {
   chainDb,
   defaultErgo,
@@ -22,7 +23,7 @@ import {
   type ErgoRelease
 } from './ergo'
 import { HELLO_HASH, readNodeSettings, writeNodeConf } from './ergoConf'
-import { detectJre, installJre } from './java'
+import { detectJre, installJre, jreUpdate, listJreBuilds, removeOtherJres, type JreBuild } from './java'
 import { layout } from './layout'
 import {
   clientUpdate,
@@ -33,7 +34,7 @@ import {
   removeOtherClients,
   type ClientRelease
 } from './lithosClient'
-import { pinnedVersion, updateSettings } from './settings'
+import { javaMajorSetting, pinnedVersion, updateSettings } from './settings'
 import { errorMessage } from './util'
 import type { Vault } from './vault'
 
@@ -64,7 +65,7 @@ export class Installer {
     return {
       network,
       folder: layout.netDir(this.root, network),
-      java: { installed: java !== null, version: java },
+      java: { installed: java !== null, version: java, major: javaMajorSetting() },
       node: {
         installed: ergo !== null,
         version: ergo?.version ?? null,
@@ -82,7 +83,13 @@ export class Installer {
   async install(network: Network): Promise<NetworkState> {
     await this.exclusive(async () => {
       if (!(await detectJre(this.root))) {
-        await this.run('java', () => installJre(this.root, this.emit))
+        await this.run('java', async () => {
+          this.emit({ task: 'java', phase: 'resolving' })
+          const major = javaMajorSetting()
+          const jre = (await this.javaBuilds(false)).find((b) => b.major === major)
+          if (!jre) throw new Error(`No Java ${major} runtime is published for this computer`)
+          await installJre(this.root, jre, this.emit)
+        })
       }
       const nodeDir = this.nodeDir(network)
       if (!(await detectErgo(nodeDir))) {
@@ -182,6 +189,49 @@ export class Installer {
     })
   }
 
+  async javaReleases(recheck: boolean): Promise<JavaList> {
+    const active = javaMajorSetting()
+    const [builds, installed] = await Promise.all([this.javaBuilds(recheck), detectJre(this.root)])
+    return {
+      releases: builds.map(({ major, version, publishedAt, size }) => ({ major, version, publishedAt, size })),
+      active,
+      installed,
+      update: jreUpdate(installed, builds.find((b) => b.major === active)),
+      defaultMajor: DEFAULT_JAVA_MAJOR
+    }
+  }
+
+  /**
+   * Installs the newest build of `major` unless it is installed and current, and makes it the Java
+   * the node and client run on. `beforeChange` runs right before anything a running program uses
+   * changes (once the download is checked and unpacked); it isn't called when nothing changes.
+   */
+  async fetchJava(major: number, beforeChange: () => Promise<void>): Promise<void> {
+    await this.exclusive(async () => {
+      const builds = await this.javaBuilds(false)
+      const jre = builds.find((b) => b.major === major)
+      const installed = await detectJre(this.root, major)
+      const needsInstall = !installed || jreUpdate(installed, jre) !== null
+      if (!needsInstall && major === javaMajorSetting()) return
+      if (needsInstall) {
+        if (!jre) throw new Error(`Java ${major} can't be installed by the launcher`)
+        // The folder being replaced may be the one in use, so programs stop before the swap.
+        await this.run('java', () => installJre(this.root, jre, this.emit, beforeChange))
+      } else {
+        await beforeChange()
+      }
+      await updateSettings((s) => {
+        if (major === DEFAULT_JAVA_MAJOR) delete s.java
+        else s.java = major
+      })
+    })
+  }
+
+  /** Removes the Java versions the launcher no longer runs. */
+  async pruneJava(): Promise<void> {
+    await removeOtherJres(this.root, javaMajorSetting())
+  }
+
   /** Removes the node or client versions the launcher no longer runs. Files still in use are left. */
   async prune(network: Network, id: ProcId): Promise<void> {
     const active = (await this.state(network))[id].version
@@ -195,6 +245,10 @@ export class Installer {
     await updateSettings((s) => {
       delete s.versions?.[network]?.[id]
     })
+  }
+
+  private javaBuilds(recheck: boolean): Promise<JreBuild[]> {
+    return this.cached('java', recheck, listJreBuilds)
   }
 
   private ergoReleases(recheck: boolean): Promise<ErgoRelease[]> {

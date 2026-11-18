@@ -52,3 +52,27 @@ export function ergoRetired(version: string): string | null {
 export function clientRetired(version: string): string | null {
   return RETIRED_CLIENTS[version] ?? null
 }
+
+/** The Java major the launcher installs unless another one is picked under Versions. */
+export const DEFAULT_JAVA_MAJOR = 11
+/** The oldest Java major the node and client run on. */
+export const MIN_JAVA_MAJOR = 11
+
+/**
+ * Compares Java runtime versions such as "11.0.32.1+1" and "11.0.33+10": the version first, then
+ * the build number after the "+". Negative if a < b, 0 if equal, positive if a > b.
+ */
+export function compareJava(a: string, b: string): number {
+  const split = (v: string): [string, number] => {
+    const [version, build] = v.split('+')
+    return [/^\d+(?:\.\d+)*/.exec(version)?.[0] ?? '0', Number.parseInt(build ?? '0', 10) || 0]
+  }
+  const [va, ba] = split(a)
+  const [vb, bb] = split(b)
+  return compareVersions(va, vb) || ba - bb
+}
+
+/** The major number of a Java runtime version ("11.0.33+10" → 11). */
+export function javaMajor(version: string): number {
+  return Number.parseInt(version, 10)
+}

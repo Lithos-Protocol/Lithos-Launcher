@@ -1,7 +1,7 @@
 import { homedir, totalmem } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { Network } from '@shared/types'
-import { settings } from './settings'
+import { javaMajorSetting, settings } from './settings'
 
 const EXE = process.platform === 'win32' ? '.exe' : ''
 
@@ -20,8 +20,10 @@ const nodeDataDir = (root: string, net: Network): string =>
   settings().dataDirs?.[net] ?? join(root, net, 'node', '.ergo')
 
 export const layout = {
-  javaDir: (root: string) => join(root, 'java', 'temurin-11-jre'),
-  javaBin: (root: string) => join(root, 'java', 'temurin-11-jre', 'bin', `java${EXE}`),
+  /** Each Java major unpacks into its own folder; without one, the major picked under Versions. */
+  javaDir: (root: string, major = javaMajorSetting()) => join(root, 'java', `temurin-${major}-jre`),
+  javaBin: (root: string, major = javaMajorSetting()) =>
+    join(root, 'java', `temurin-${major}-jre`, 'bin', `java${EXE}`),
   netDir: (root: string, net: Network) => join(root, net),
   nodeDir: (root: string, net: Network) => join(root, net, 'node'),
   nodeDataDir,

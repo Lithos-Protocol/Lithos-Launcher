@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { Network, ProcId } from '@shared/types'
+import { DEFAULT_JAVA_MAJOR } from '@shared/versions'
 import { writeFileAtomic } from './util'
 
 /**
@@ -18,6 +19,8 @@ export interface LauncherSettings {
   dataDirs?: Partial<Record<Network, string>>
   /** Node and client versions picked under Versions; absent means the newest one installed. */
   versions?: Partial<Record<Network, Partial<Record<ProcId, string>>>>
+  /** Java major picked under Versions, shared by both networks; absent means DEFAULT_JAVA_MAJOR. */
+  java?: number
   /**
    * One mining key across mainnet and testnet (same seed, 9… / 3… addresses).
    * Off by default: testnet keys are often treated less carefully than mainnet ones.
@@ -52,6 +55,11 @@ export function shareWalletAcrossNetworks(): boolean {
 /** The node or client version picked for a network, if one was. */
 export function pinnedVersion(network: Network, id: ProcId): string | null {
   return current.versions?.[network]?.[id] ?? null
+}
+
+/** The Java major the node and client run on. */
+export function javaMajorSetting(): number {
+  return current.java ?? DEFAULT_JAVA_MAJOR
 }
 
 export async function updateSettings(patch: (s: LauncherSettings) => void): Promise<LauncherSettings> {
